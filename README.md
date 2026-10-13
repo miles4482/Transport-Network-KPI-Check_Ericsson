@@ -20,18 +20,30 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 |---|---|
 | `scripts/fege_choke_check.py` | Reads the FEG and OSS files, runs detection, builds every sheet, writes `FEGE_Choked_Flat_Sites_<zone>_vN.xlsx` |
 | `scripts/geoplot_satellite.py` | Renders the national, thana, and cluster satellite maps (JPEG for the GeoPlot sheet, Leaflet HTML) |
+| `scripts/fege_choke_check_ericsson.py` | Ericsson runner. Maps the Ericsson export columns onto the rule roles, reuses the detection from `fege_choke_check.py`, and writes Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only |
+
+### Ericsson column mapping
+
+| Rule role | Ericsson column in `FEG_KPI_Eric.xlsb` |
+|---|---|
+| eNodeB Name | `ERBS` |
+| RxMaxSpeed (choke trace, Mbit/s) | `Max DL Capacity Usage (Mbps)` |
+| Tx Total BW (reference only, median) | `Max UL Capacity Usage(Mbps)` |
+| Date / Time | `Date` (Excel serial) / `Hour` (0–23) |
+
+Run: `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` command is needed to open `.rar` uploads.
 
-### Input files the user must upload (not in this repo yet)
+### Input files
 
-| Input | Name hint | Example from the NCCD run |
+| Input | Name hint | In this repo |
 |---|---|---|
-| FEG port KPI (detection source, `RxMaxSpeed`) | `FEG` or `FEGE` in the name | `FEG_KPI_NCCD_11 OCT.part1.rar`, `FEG_KPI_NCCD_11 OCT.part2.rar` |
-| OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | `OSS KPI Hourly Cel Level_08Oct_V1.part1.rar` … `OSS KPI Hourly Cel Level_10Oct_V2.part2.rar` |
-| Physical site database (lat/long, district, region, thana, Tech, Site Type) | physical site / site database | `Physical_Site_Database_11Oct26.xlsx` |
-| Top thana list for GeoPlot | thana | `Top Thana.xlsx` |
-| Previous-window FEG file (Comparison sheet only, optional) | `FEG` + earlier date | `FEG_KPI_DHAKA_5Oct.rar` |
+| FEG port KPI (detection source) | `FEG` or `FEGE` in the name | `FEG_KPI_Eric.xlsb` (3–5 Oct 2026, uploaded) |
+| OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | not uploaded (NCCD example: `OSS KPI Hourly Cel Level_08Oct_V1.part1.rar`) |
+| Physical site database (lat/long, district, region, thana, Tech, Site Type) | physical site / site database | not uploaded (NCCD example: `Physical_Site_Database_11Oct26.xlsx`) |
+| Top thana list for GeoPlot | thana | not uploaded (`Top Thana.xlsx`) |
+| Previous-window FEG file (Comparison sheet only, optional) | `FEG` + earlier date | not uploaded |
 
 ### Outputs produced
 
