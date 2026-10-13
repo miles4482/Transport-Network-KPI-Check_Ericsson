@@ -6,19 +6,23 @@ The Ericsson transport export (`FEG_KPI_Eric.xlsb`) has these columns:
     Date | Hour | ERBS | Max DL Capacity Usage (Mbps)
          | Max UL Capacity Usage(Mbps) | Total Capcity,Mbps
 
-They map onto the Huawei roles in RULES.md like this:
+One of those counters plays the RxMaxSpeed role from RULES.md:
 
-    RxMaxSpeed (choke trace)   <- Max DL Capacity Usage (Mbps)
-    Tx Total BW (reference)    <- Max UL Capacity Usage (Mbps)
-    eNodeB Name                <- ERBS
-    Date / Time                <- Date (Excel serial) / Hour (0-23)
+    --trace total  (default, v2 onward)  Total Capcity,Mbps only
+    --trace dl     (v1)                   Max DL Capacity Usage, with
+                                          Max UL Capacity Usage as reference
 
-Detection, listing, severity, chart lines, and the Dashboard layout are the
-v84 rules imported from fege_choke_check.py. Only the three requested sheets
-are written: Dashboard, 2. HourlyChartOfIssueSites (with its hidden
-_ChartData), and 3. Hourly KPI. OSS, physical site database, and thana files
-are not uploaded for Ericsson, so Tech, Site Type, GeoPlot, BusyHour, Site
-List and the OSS side tables are not built.
+    eNodeB Name   <- ERBS
+    Date / Time   <- Date (Excel serial) / Hour (0-23)
+
+Detection, severity, chart lines, and the Dashboard layout are the v84 rules
+imported from fege_choke_check.py. `--min-hours-pct` keeps only sites whose
+hours on cap reach that share of the window (v2: 50%, the Severe band).
+Only the three requested sheets are written: Dashboard,
+2. HourlyChartOfIssueSites (with its hidden _ChartData), and 3. Hourly KPI.
+OSS, physical site database, and thana files are not uploaded for Ericsson,
+so Tech, Site Type, GeoPlot, BusyHour, Site List and the OSS side tables are
+not built.
 """
 
 from __future__ import annotations
@@ -39,7 +43,7 @@ import fege_choke_check as fcc  # noqa: E402
 
 ZONE = "Ericsson"
 SOURCE_DEFAULT = "FEG_KPI_Eric.xlsb"
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v1.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v2.xlsx"
 PARSE_CACHE = Path("/tmp/eric_feg_parsed.pkl")
 
 ERIC_SITE_COL = "ERBS"
@@ -48,10 +52,46 @@ ERIC_UL_COL = "Max UL Capacity Usage(Mbps)"
 ERIC_TOTAL_COL = "Total Capcity,Mbps"
 # Derived columns in the units analyse() expects (bit/s and kbit/s), so the
 # Huawei detection code runs unchanged on the Ericsson Mbps values.
-RX_BITS_COL = "Max DL Capacity Usage (bit/s)"
-TX_KBITS_COL = "Max UL Capacity Usage (kbit/s)"
-RX_LABEL = "Max DL Capacity Usage"
-TX_LABEL = "Max UL Capacity Usage"
+RX_BITS_COL = "Trace (bit/s)"
+TX_KBITS_COL = "Reference (kbit/s)"
+
+# Which Ericsson counter plays the RxMaxSpeed role. "total" scores
+# Total Capcity,Mbps and shows no other counter. "dl" scores Max DL Capacity
+# Usage with Max UL Capacity Usage as the Tx reference column.
+TRACE_MODES = {
+    "total": {
+        "trace_col": ERIC_TOTAL_COL,
+        "trace_label": "Total Capacity",
+        "ref_col": None,
+        "ref_label": None,
+        "hourly_cols": ((ERIC_TOTAL_COL, "Total Capacity (Mbps)"),),
+    },
+    "dl": {
+        "trace_col": ERIC_DL_COL,
+        "trace_label": "Max DL Capacity Usage",
+        "ref_col": ERIC_UL_COL,
+        "ref_label": "Max UL Capacity Usage",
+        "hourly_cols": (
+            (ERIC_DL_COL, ERIC_DL_COL),
+            (ERIC_UL_COL, "Max UL Capacity Usage (Mbps)"),
+            (ERIC_TOTAL_COL, "Total Capacity Usage (Mbps)"),
+        ),
+    },
+}
+MODE = TRACE_MODES["total"]
+RX_LABEL = MODE["trace_label"]
+TX_LABEL = MODE["ref_label"]
+MIN_HOURS_PCT = 50.0
+
+
+def configure(mode: str, min_hours_pct: float) -> None:
+    global MODE, RX_LABEL, TX_LABEL, MIN_HOURS_PCT
+    MODE = TRACE_MODES[mode]
+    RX_LABEL = MODE["trace_label"]
+    TX_LABEL = MODE["ref_label"]
+    MIN_HOURS_PCT = float(min_hours_pct)
+
+
 # _ChartData holds 5 columns per chart. Excel stops at 16,384 columns, so the
 # sites are laid out in row blocks of CHART_DATA_PER_ROW sites each.
 CHART_DATA_PER_ROW = 2000
@@ -78,25 +118,29 @@ def load_ericsson(path: Path) -> pd.DataFrame:
 
 def to_rule_frame(raw: pd.DataFrame) -> pd.DataFrame:
     """Rename and rescale the Ericsson columns into the frame analyse() reads."""
-    required = {"Date", "Hour", ERIC_SITE_COL, ERIC_DL_COL, ERIC_UL_COL}
+    required = {"Date", "Hour", ERIC_SITE_COL, MODE["trace_col"]}
+    if MODE["ref_col"]:
+        required.add(MODE["ref_col"])
     missing = required - set(raw.columns)
     if missing:
         raise SystemExit(f"Missing columns: {', '.join(sorted(missing))}")
+    trace = pd.to_numeric(raw[MODE["trace_col"]], errors="coerce")
+    # With no reference counter, the trace itself fills the Tx slot so the
+    # "median Tx BW <= 0" skip in analyse() only drops all-zero sites.
+    ref = (
+        pd.to_numeric(raw[MODE["ref_col"]], errors="coerce") if MODE["ref_col"] else trace
+    )
     df = pd.DataFrame(
         {
             "Date": raw["Date"],
             "Time": raw["Hour"].astype(int).astype(str) + ":00",
             "eNodeB Name": raw[ERIC_SITE_COL].astype(str).str.strip(),
-            RX_BITS_COL: pd.to_numeric(raw[ERIC_DL_COL], errors="coerce") * 1_000_000.0,
-            TX_KBITS_COL: pd.to_numeric(raw[ERIC_UL_COL], errors="coerce") * 1_000.0,
-            ERIC_DL_COL: pd.to_numeric(raw[ERIC_DL_COL], errors="coerce"),
-            ERIC_UL_COL: pd.to_numeric(raw[ERIC_UL_COL], errors="coerce"),
+            RX_BITS_COL: trace * 1_000_000.0,
+            TX_KBITS_COL: ref * 1_000.0,
         }
     )
-    if ERIC_TOTAL_COL in raw.columns:
-        df[ERIC_TOTAL_COL] = pd.to_numeric(raw[ERIC_TOTAL_COL], errors="coerce")
-    else:
-        df[ERIC_TOTAL_COL] = df[ERIC_DL_COL] + df[ERIC_UL_COL]
+    for col, _label in MODE["hourly_cols"]:
+        df[col] = pd.to_numeric(raw[col], errors="coerce") if col in raw.columns else np.nan
     return df
 
 
@@ -109,6 +153,12 @@ def set_window_from_file(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
     fcc.ANALYSIS_END = end
     fcc.ANALYSIS_DAYS = int((end - start).days) + 1
     return start, end
+
+
+def keep_min_hours(records: list[dict]) -> tuple[list[dict], int]:
+    """Apply the hours-on-cap floor. Returns (kept, dropped count)."""
+    kept = [rec for rec in records if float(rec["hours_pct"]) >= MIN_HOURS_PCT]
+    return kept, len(records) - len(kept)
 
 
 def _page(ws, title: str, *, fit_width: bool = True) -> None:
@@ -183,7 +233,33 @@ def _write_tiles(ws, row: int, tiles, tf) -> int:
     return row + 2
 
 
-def write_dashboard(book, styles, source_name, period_txt, n_sites, records) -> None:
+def _mapping_note(dropped: int) -> str:
+    if MODE["ref_col"]:
+        counters = (
+            f"RxMaxSpeed = {RX_LABEL} (Mbps), the only counter that decides choke. "
+            f"Tx Total BW reference = {TX_LABEL} (Mbps), median over the window, "
+            "not used to list or grade."
+        )
+    else:
+        counters = (
+            f"RxMaxSpeed = {MODE['trace_col']} (Mbps). This is the only counter read; "
+            "it decides choke, and no other counter is shown."
+        )
+    floor = ""
+    if MIN_HOURS_PCT > 0:
+        floor = (
+            f" Listing kept to sites with hours on cap ≥ {MIN_HOURS_PCT:.0f}% of the window; "
+            f"{dropped:,} choked sites under that share are not listed."
+        )
+    return (
+        f"Ericsson counter mapping: {counters} Site = ERBS.{floor} "
+        "This version carries Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only. "
+        "The physical site database, OSS KPI and top-thana files are not uploaded, so Tech, "
+        "Site Type, GeoPlot, BusyHour and the OSS 4H/1H blocks are not built."
+    )
+
+
+def write_dashboard(book, styles, source_name, period_txt, n_sites, records, dropped) -> None:
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
     ws.set_tab_color("#C65911")
@@ -209,24 +285,18 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, records) -> 
         f"{ZONE} transmission    ·    {period_txt}    ·    hourly    ·    {source_name}",
         styles["subtitle"],
     )
-    ws.set_row(2, 48)
-    ws.merge_range(
-        "A3:J3",
-        f"Ericsson counter mapping: RxMaxSpeed = {RX_LABEL} (Mbps), the only counter that "
-        f"decides choke. Tx Total BW reference = {TX_LABEL} (Mbps), median over the window, "
-        "not used to list or grade. Site = ERBS. "
-        "This version carries Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only. "
-        "The physical site database, OSS KPI and top-thana files are not uploaded, so Tech, "
-        "Site Type, GeoPlot, BusyHour and the OSS 4H/1H blocks are not built.",
-        styles["note"],
-    )
+    ws.set_row(2, 60)
+    ws.merge_range("A3:J3", _mapping_note(dropped), styles["note"])
 
+    issue_label = (
+        f"Issue sites (≥{MIN_HOURS_PCT:.0f}% hours on cap)" if MIN_HOURS_PCT > 0 else "Issue sites"
+    )
     row = _write_tiles(
         ws,
         3,
         [
             (0, "Sites checked", n_sites, False),
-            (2, "Issue sites", len(records), True),
+            (2, issue_label, len(records), True),
             (4, "Severe choke", counts[fcc.SEV_SEVERE], True),
             (
                 6,
@@ -301,6 +371,8 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, records) -> 
     indexed = list(enumerate(records))
     for name, note in fcc.SEVERITY_NOTES:
         group = [(i, rec) for i, rec in indexed if rec["severity"] == name]
+        if not group:
+            continue
         ws.set_row(row, 22)
         ws.merge_range(
             row,
@@ -342,6 +414,24 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, records) -> 
             row += 1
         row += 1
     ws.set_zoom(110)
+
+
+def _chart_header(rec: dict) -> list[tuple[int, str, str]]:
+    first = (
+        (0, f"{TX_LABEL}, median (Mbit/s)", f"{rec['bw']:.2f}")
+        if MODE["ref_col"]
+        else (0, f"Max {RX_LABEL} (Mbit/s)", f"{rec['max_rx']:.2f}")
+    )
+    return [
+        first,
+        (2, f"Stuck {RX_LABEL} (Mbit/s)", f"{rec['center']:.2f}"),
+        (
+            4,
+            "Hours on cap (all 24h)",
+            f"{rec['hours_on']} / {rec['hours_n']}  ({rec['hours_pct']:.1f}%)",
+        ),
+        (6, "Days on cap (≥3h)", f"{rec['days_on_cap']} / {rec['days_total']}"),
+    ]
 
 
 def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None:
@@ -422,16 +512,7 @@ def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None
         ws.merge_range(
             top, 0, top, 7, f"{i + 1:02d}    {site}    ·    {rec['severity']}", styles["banner"]
         )
-        labels = [
-            (0, f"{TX_LABEL}, median (Mbit/s)", f"{rec['bw']:.2f}"),
-            (2, f"Stuck {RX_LABEL} (Mbit/s)", f"{rec['center']:.2f}"),
-            (
-                4,
-                "Hours on cap (all 24h)",
-                f"{rec['hours_on']} / {rec['hours_n']}  ({rec['hours_pct']:.1f}%)",
-            ),
-            (6, "Days on cap (≥3h)", f"{rec['days_on_cap']} / {rec['days_total']}"),
-        ]
+        labels = _chart_header(rec)
         ws.set_row(top + 1, 16)
         ws.set_row(top + 2, 20)
         for col, label, _value in labels:
@@ -531,17 +612,12 @@ def write_hourly(book, styles, work, records) -> None:
     ws = book.add_worksheet("3. Hourly KPI")
     _page(ws, "Hourly FEGE KPI — choked sites")
     ws.set_tab_color("#5B9BD5")
-    headers = [
-        "Date",
-        "Time",
-        ERIC_SITE_COL,
-        ERIC_DL_COL,
-        "Max UL Capacity Usage (Mbps)",
-        "Total Capacity Usage (Mbps)",
-        "On cap",
-        "Stuck level (Mbit/s)",
-    ]
-    for i, w in enumerate([14, 10, 16, 26, 26, 26, 12, 20]):
+    value_cols = list(MODE["hourly_cols"])
+    headers = ["Date", "Time", ERIC_SITE_COL]
+    headers += [label for _col, label in value_cols]
+    headers += ["On cap", "Stuck level (Mbit/s)"]
+    widths = [14, 10, 16] + [26] * len(value_cols) + [12, 20]
+    for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     ws.set_row(0, 30)
     for col, text in enumerate(headers):
@@ -550,37 +626,41 @@ def write_hourly(book, styles, work, records) -> None:
     sites = [r["site"] for r in records]
     hourly = work.loc[work["eNodeB Name"].isin(sites)].sort_values(["eNodeB Name", "ts"])
     site_parity = {site: i % 2 for i, site in enumerate(sites)}
-    cols = (
+    base = (
         hourly["eNodeB Name"].tolist(),
         hourly["Date"].tolist(),
         hourly["Hour"].tolist(),
-        hourly[ERIC_DL_COL].tolist(),
-        hourly[ERIC_UL_COL].tolist(),
-        hourly[ERIC_TOTAL_COL].tolist(),
         hourly["OnCap"].tolist(),
         hourly["StuckLevel"].tolist(),
     )
+    values = [hourly[col].tolist() for col, _label in value_cols]
+    on_cap_col = 3 + len(value_cols)
     excel_row = 0
-    for site, date, hour, dl, ul, total, on_cap, level in zip(*cols):
+    for idx, (site, date, hour, on_cap, level) in enumerate(zip(*base)):
         excel_row += 1
         z = "_z" if site_parity[site] else ""
         ws.write_datetime(excel_row, 0, date.to_pydatetime(), styles["date" + z])
         ws.write_datetime(excel_row, 1, time(int(hour), 0), styles["time" + z])
         ws.write_string(excel_row, 2, site, styles["text" + z])
-        for col, value in ((3, dl), (4, ul), (5, total)):
+        for offset, series in enumerate(values):
+            value = series[idx]
             if value is None or not np.isfinite(value):
-                ws.write_blank(excel_row, col, None, styles["num" + z])
+                ws.write_blank(excel_row, 3 + offset, None, styles["num" + z])
             else:
-                ws.write_number(excel_row, col, float(value), styles["num" + z])
-        ws.write_string(excel_row, 6, "Yes" if bool(on_cap) else "No", styles["center" + z])
-        ws.write_number(excel_row, 7, float(level), styles["num" + z])
+                ws.write_number(excel_row, 3 + offset, float(value), styles["num" + z])
+        ws.write_string(
+            excel_row, on_cap_col, "Yes" if bool(on_cap) else "No", styles["center" + z]
+        )
+        ws.write_number(excel_row, on_cap_col + 1, float(level), styles["num" + z])
 
     ws.autofilter(0, 0, max(excel_row, 1), len(headers) - 1)
     ws.repeat_rows(0, 0)
     ws.set_zoom(110)
 
 
-def write_workbook(path: Path, source_name: str, work: pd.DataFrame, records: list[dict]) -> None:
+def write_workbook(
+    path: Path, source_name: str, work: pd.DataFrame, records: list[dict], dropped: int = 0
+) -> None:
     import xlsxwriter
 
     book = xlsxwriter.Workbook(str(path))
@@ -593,7 +673,7 @@ def write_workbook(path: Path, source_name: str, work: pd.DataFrame, records: li
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
     if records and "peak_72" not in records[0]:
         fcc._attach_chart_peaks(work, records, chart_start, chart_end)
-    write_dashboard(book, styles, source_name, period_txt, n_sites, records)
+    write_dashboard(book, styles, source_name, period_txt, n_sites, records, dropped)
     write_snapshots(book, styles, work, records, chart_start, chart_end)
     print("Writing hourly KPI...", flush=True)
     write_hourly(book, styles, work, records)
@@ -604,7 +684,20 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", nargs="?", default=SOURCE_DEFAULT)
     parser.add_argument("-o", "--output", default=OUTPUT_DEFAULT)
+    parser.add_argument(
+        "--trace",
+        choices=sorted(TRACE_MODES),
+        default="total",
+        help="Ericsson counter that plays the RxMaxSpeed role (default: total)",
+    )
+    parser.add_argument(
+        "--min-hours-pct",
+        type=float,
+        default=MIN_HOURS_PCT,
+        help="List only sites with hours on cap at or above this share (default: 50)",
+    )
     args = parser.parse_args()
+    configure(args.trace, args.min_hours_pct)
     t0 = pytime.perf_counter()
 
     source = Path(args.source)
@@ -613,12 +706,14 @@ def main() -> None:
     start, end = set_window_from_file(df)
     fcc.RX_COL = RX_BITS_COL
     fcc.TXBW_COL = TX_KBITS_COL
+    print(f"Trace: {MODE['trace_col']}  ·  listing floor: hours on cap ≥ {MIN_HOURS_PCT:.0f}%")
     print(f"Window: {start.date()} – {end.date()} ({fcc.ANALYSIS_DAYS} days, all hours)")
 
-    work, records = fcc.analyse(df)
+    work, all_records = fcc.analyse(df)
+    records, dropped = keep_min_hours(all_records)
     print(f"Analysis {pytime.perf_counter() - t0:.1f}s")
     output = Path(args.output)
-    write_workbook(output, source.name, work, records)
+    write_workbook(output, source.name, work, records, dropped)
 
     by_sev = defaultdict(int)
     by_shape = defaultdict(int)
@@ -632,7 +727,9 @@ def main() -> None:
         by_when[rec["cap_when"]] += 1
         last_n += int(rec["last_flag"])
     print(f"Sites checked: {work['eNodeB Name'].nunique()}")
-    print(f"Issue sites: {len(records)}")
+    print(f"Choked sites found: {len(all_records)}")
+    print(f"Issue sites listed (hours on cap ≥ {MIN_HOURS_PCT:.0f}%): {len(records)}")
+    print(f"Not listed (under the floor): {dropped}")
     print("Severity (hours on cap):")
     for name in (fcc.SEV_SEVERE, fcc.SEV_HIGH, fcc.SEV_MODERATE, fcc.SEV_LOW):
         print(f"  {name}: {by_sev[name]}")

@@ -27,11 +27,13 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 | Rule role | Ericsson column in `FEG_KPI_Eric.xlsb` |
 |---|---|
 | eNodeB Name | `ERBS` |
-| RxMaxSpeed (choke trace, Mbit/s) | `Max DL Capacity Usage (Mbps)` |
-| Tx Total BW (reference only, median) | `Max UL Capacity Usage(Mbps)` |
+| RxMaxSpeed (choke trace, Mbit/s) | v2: `Total Capcity,Mbps` only (`--trace total`). v1: `Max DL Capacity Usage (Mbps)` (`--trace dl`) |
+| Tx Total BW (reference only, median) | v2: none. v1: `Max UL Capacity Usage(Mbps)` |
 | Date / Time | `Date` (Excel serial) / `Hour` (0–23) |
 
-Run: `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
+
+Run: `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` command is needed to open `.rar` uploads.
 

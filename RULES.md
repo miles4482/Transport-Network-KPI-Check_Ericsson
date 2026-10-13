@@ -8,6 +8,17 @@ This repo is the **Ericsson** report. Use these same rules. Do not build a repor
 
 The counter names below (`VS.FEGE.RxMaxSpeed`, `VS.FEGE.TxTotalBW`, the OSS `_N` / `_D` columns, `MID(Cell Name, 8, 3)`) are the Huawei export names. When the Ericsson export uses different column names, map them to the same roles. Do not change the thresholds or the shapes.
 
+## Ericsson settings (user instructions, 13 Oct 2026)
+
+Source file: `FEG_KPI_Eric.xlsb` (columns `Date`, `Hour`, `ERBS`, `Max DL Capacity Usage (Mbps)`, `Max UL Capacity Usage(Mbps)`, `Total Capcity,Mbps`). Window scored: 3–5 Oct 2026, every hour.
+
+| Version | RxMaxSpeed role | Reference column | Listing floor | Sheets |
+|---|---|---|---|---|
+| v1 | `Max DL Capacity Usage (Mbps)` | `Max UL Capacity Usage(Mbps)` median | none (all four severities) | Dashboard, 2. HourlyChartOfIssueSites, 3. Hourly KPI |
+| v2 | `Total Capcity,Mbps` only | none shown (Max Total Capacity shown instead) | hours on cap ≥ **50%** (Severe only) | same three sheets |
+
+From v2 on, read **only** `Total Capcity,Mbps` as the choke trace and show no other counter. List a site only when its hours on cap are at least 50% of the window. Detection shapes, tolerances, and the day / last-day rules are unchanged; the floor is applied after detection. Runner: `scripts/fege_choke_check_ericsson.py --trace total --min-hours-pct 50`.
+
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.
 
 Spelling **Chocked** on the BusyHour flag columns is intentional. Keep it.
