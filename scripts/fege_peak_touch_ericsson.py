@@ -42,7 +42,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v3.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v4.xlsx"
+LICENSE_FILE = "DL_License_File.xlsx"
+LICENSE_SHEET = "Dashboard_License"
+LICENSE_NODE_COL = "NodeId"
+LICENSE_CAP_COL = "dlBbCapacityNet"
+# An hour counts when Max DL Capacity Usage / dlBbCapacityNet is at or above
+# this share. A site is listed when such hours are at least LICENSE_HOURS_PCT
+# of its hours.
+LICENSE_USE = 0.90
+LICENSE_HOURS_PCT = 40.0
 TRACE_COL = eric.ERIC_DL_COL
 TRACE_LABEL = "Max DL Capacity Usage"
 TOUCH_BAND = 0.05
@@ -522,7 +531,171 @@ def write_hourly(book, styles, work, records) -> None:
     ws.set_zoom(110)
 
 
-def write_workbook(path: Path, source_name: str, work: pd.DataFrame, records: list[dict]) -> None:
+def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
+    """Sites whose Max DL usage sits at >=90% of the installed license.
+
+    dlBbCapacityNet is the capacity license on the node (NodeId = ERBS), one
+    value for the whole window. An hour counts when
+    Max DL Capacity Usage (Mbps) / dlBbCapacityNet >= 90%. A site is listed
+    when those hours are at least 40% of its hours.
+    """
+    cap = pd.to_numeric(lic[LICENSE_CAP_COL], errors="coerce")
+    by_node = dict(zip(lic[LICENSE_NODE_COL].astype(str).str.strip(), cap))
+    df = pd.DataFrame(
+        {
+            "site": raw[eric.ERIC_SITE_COL].astype(str).str.strip(),
+            "date": fcc.parse_kpi_date(raw["Date"]),
+            "hour": raw["Hour"].astype(int),
+            "rx": pd.to_numeric(raw[TRACE_COL], errors="coerce"),
+        }
+    )
+    df = df.dropna(subset=["rx"]).sort_values(["site", "date", "hour"])
+    df = df.drop_duplicates(["site", "date", "hour"], keep="last")
+    df["lic"] = df["site"].map(by_node)
+    scored = df["lic"].notna() & (df["lic"] > 0)
+    df["hit"] = False
+    df.loc[scored, "hit"] = df.loc[scored, "rx"] >= LICENSE_USE * df.loc[scored, "lic"]
+    df["busy"] = (df["hour"] >= fcc.BUSY_START) & (df["hour"] <= fcc.BUSY_END)
+
+    records: list[dict] = []
+    for site, g in df[scored].groupby("site", sort=False):
+        hours_n = int(len(g))
+        hours_on = int(g["hit"].sum())
+        share = 100.0 * hours_on / hours_n
+        if share < LICENSE_HOURS_PCT:
+            continue
+        license_mbps = float(g["lic"].iloc[0])
+        peak = float(g["rx"].max())
+        busy = g["busy"].to_numpy()
+        hit = g["hit"].to_numpy()
+        records.append(
+            {
+                "site": site,
+                "license": license_mbps,
+                "hours_on": hours_on,
+                "hours_n": hours_n,
+                "share": share,
+                "peak": peak,
+                "peak_ratio": 100.0 * peak / license_mbps,
+                "median_ratio": 100.0 * float(np.median(g["rx"] / license_mbps)),
+                "cap_when": fcc.cap_window(int(hit[busy].sum()), int(hit[~busy].sum())),
+            }
+        )
+    records.sort(key=lambda r: (-r["share"], r["site"]))
+    return {
+        "records": records,
+        "feg_sites": int(df["site"].nunique()),
+        "license_nodes": int(lic[LICENSE_NODE_COL].nunique()),
+        "matched": int(df.loc[df["lic"].notna(), "site"].nunique()),
+        "no_license": int(df.loc[df["lic"].isna(), "site"].nunique()),
+        "bad_license": int(df.loc[df["lic"].notna() & (df["lic"] <= 0), "site"].nunique()),
+        "scored": int(df.loc[scored, "site"].nunique()),
+    }
+
+
+def write_license_dashboard(book, styles, source_name, period_txt, summary: dict) -> None:
+    """Dashboard_License: sites using >=90% of the installed DL license."""
+    ws = book.add_worksheet(LICENSE_SHEET)
+    _page(ws, "License usage")
+    ws.set_footer("&L&8License usage = Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
+    ws.set_tab_color("#375623")
+    for i, w in enumerate([8, 16, 18, 16, 14, 16, 18, 16, 16, 18]):
+        ws.set_column(i, i, w)
+    tf = eric._tile_formats(book)
+    records = summary["records"]
+
+    ws.set_row(0, 28)
+    ws.merge_range("A1:J1", "License Usage Review", styles["title"])
+    ws.set_row(1, 18)
+    ws.merge_range(
+        "A2:J2",
+        f"{eric.ZONE}    ·    {period_txt}    ·    {source_name}    ·    {LICENSE_FILE}",
+        styles["subtitle"],
+    )
+    ws.set_row(2, 64)
+    ws.merge_range(
+        "A3:J3",
+        f"dlBbCapacityNet is the DL capacity license installed on the node "
+        f"({LICENSE_NODE_COL} = ERBS), one value for the window. "
+        f"An hour counts when {TRACE_COL} / dlBbCapacityNet "
+        f"≥ {LICENSE_USE * 100:.0f}%. A site is listed when those hours are at least "
+        f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
+        f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
+        f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored.",
+        styles["note"],
+    )
+    eric._write_tiles(
+        ws,
+        3,
+        [
+            (0, "ERBS in the FEG file", summary["feg_sites"], False),
+            (2, "Matched to a license", summary["matched"], False),
+            (4, "License scored (> 0)", summary["scored"], False),
+            (
+                6,
+                f"Listed (≥{LICENSE_HOURS_PCT:.0f}% of hours at ≥{LICENSE_USE * 100:.0f}%)",
+                len(records),
+                True,
+            ),
+        ],
+        tf,
+    )
+
+    headers = [
+        "No.",
+        "ERBS",
+        "License (Mbps)",
+        "Hours ≥90%",
+        "Total hours",
+        "Share of hours (%)",
+        "Peak Max DL (Mbps)",
+        "Peak / license (%)",
+        "Median usage (%)",
+        "Where ≥90%",
+    ]
+    row = 7
+    ws.set_row(row, 22)
+    ws.merge_range(
+        row, 0, row, 9,
+        f"Sites at ≥{LICENSE_USE * 100:.0f}% of license for ≥{LICENSE_HOURS_PCT:.0f}% of hours"
+        f"    ·    {len(records)}",
+        styles["section"],
+    )
+    row += 1
+    ws.set_row(row, 32)
+    for col, text in enumerate(headers):
+        ws.write(row, col, text, styles["header"])
+    row += 1
+    for i, rec in enumerate(records):
+        zebra = i % 2 == 1
+        ws.set_row(row, 18)
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        ifmt = styles["int_z"] if zebra else styles["int"]
+        cfmt = styles["center_z"] if zebra else styles["center"]
+        pfmt = styles["pct_z"] if zebra else styles["pct"]
+        tfmt = styles["text_z"] if zebra else styles["text"]
+        ws.write_number(row, 0, i + 1, ifmt)
+        ws.write_string(row, 1, rec["site"], tfmt)
+        ws.write_number(row, 2, rec["license"], nfmt)
+        ws.write_number(row, 3, rec["hours_on"], ifmt)
+        ws.write_number(row, 4, rec["hours_n"], ifmt)
+        ws.write_number(row, 5, rec["share"], pfmt)
+        ws.write_number(row, 6, rec["peak"], nfmt)
+        ws.write_number(row, 7, rec["peak_ratio"], pfmt)
+        ws.write_number(row, 8, rec["median_ratio"], pfmt)
+        ws.write_string(row, 9, rec["cap_when"], cfmt)
+        row += 1
+    ws.autofilter(8, 0, max(row - 1, 8), len(headers) - 1)
+    ws.set_zoom(110)
+
+
+def write_workbook(
+    path: Path,
+    source_name: str,
+    work: pd.DataFrame,
+    records: list[dict],
+    license_summary: dict | None = None,
+) -> None:
     import xlsxwriter
 
     book = xlsxwriter.Workbook(str(path))
@@ -538,6 +711,8 @@ def write_workbook(path: Path, source_name: str, work: pd.DataFrame, records: li
     write_snapshots(book, styles, work, records, chart_start, chart_end)
     print("Writing hourly KPI...", flush=True)
     write_hourly(book, styles, work, records)
+    if license_summary is not None:
+        write_license_dashboard(book, styles, source_name, period_txt, license_summary)
     book.close()
 
 
@@ -545,6 +720,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", nargs="?", default=eric.SOURCE_DEFAULT)
     parser.add_argument("-o", "--output", default=OUTPUT_DEFAULT)
+    parser.add_argument("--license", default=LICENSE_FILE, help="DL capacity license file")
     args = parser.parse_args()
     t0 = pytime.perf_counter()
 
@@ -560,8 +736,23 @@ def main() -> None:
         f"trace {TRACE_COL}  ·  touch band {TOUCH_BAND * 100:.0f}% below Peak"
     )
     print(f"Analysis {pytime.perf_counter() - t0:.1f}s")
+    license_summary = None
+    license_path = Path(args.license)
+    if license_path.exists():
+        lic = pd.read_excel(license_path)
+        missing_cols = {LICENSE_NODE_COL, LICENSE_CAP_COL} - set(lic.columns)
+        if missing_cols:
+            raise SystemExit(f"{license_path.name} is missing columns: {', '.join(sorted(missing_cols))}")
+        license_summary = analyse_license(raw, lic)
+        print(
+            f"License: {license_summary['matched']:,} ERBS matched, "
+            f"{len(license_summary['records']):,} listed "
+            f"(≥{LICENSE_USE * 100:.0f}% of license for ≥{LICENSE_HOURS_PCT:.0f}% of hours)"
+        )
+    else:
+        print(f"License file not found ({license_path}); {LICENSE_SHEET} not written")
     output = Path(args.output)
-    write_workbook(output, source.name, work, records)
+    write_workbook(output, source.name, work, records, license_summary)
 
     by_sev = defaultdict(int)
     by_when = defaultdict(int)

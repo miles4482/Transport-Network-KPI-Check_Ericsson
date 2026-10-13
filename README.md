@@ -21,7 +21,7 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 | `scripts/fege_choke_check.py` | Reads the FEG and OSS files, runs detection, builds every sheet, writes `FEGE_Choked_Flat_Sites_<zone>_vN.xlsx` |
 | `scripts/geoplot_satellite.py` | Renders the national, thana, and cluster satellite maps (JPEG for the GeoPlot sheet, Leaflet HTML) |
 | `scripts/fege_choke_check_ericsson.py` | Ericsson runner (v1, v2). Maps the Ericsson export columns onto the rule roles, reuses the detection from `fege_choke_check.py`, and writes Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only |
-| `scripts/fege_peak_touch_ericsson.py` | Ericsson runner (v3). Peak-touch method on `Max DL Capacity Usage (Mbps)`: hours within 5% below the window Peak, graded Severe ≥70% / High ≥50% / Medium ≥40% / Low ≥20%. Same three sheets |
+| `scripts/fege_peak_touch_ericsson.py` | Ericsson runner (v3 and v4). Peak-touch method on `Max DL Capacity Usage (Mbps)`, plus the `Dashboard_License` sheet when `DL_License_File.xlsx` is present |
 
 ### Ericsson column mapping
 
@@ -36,7 +36,7 @@ v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
 Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
-Run (v3 Peak-touch method): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v3 Peak-touch method, v4 adds Dashboard_License from `DL_License_File.xlsx`): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` command is needed to open `.rar` uploads.
 
@@ -47,6 +47,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | FEG port KPI (detection source) | `FEG` or `FEGE` in the name | `FEG_KPI_Eric.xlsb` (3–5 Oct 2026, uploaded) |
 | OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | not uploaded (NCCD example: `OSS KPI Hourly Cel Level_08Oct_V1.part1.rar`) |
 | Physical site database (lat/long, district, region, thana, Tech, Site Type) | physical site / site database | not uploaded (NCCD example: `Physical_Site_Database_11Oct26.xlsx`) |
+| DL capacity license (`NodeId`, `dlBbCapacityNet`) | license | `DL_License_File.xlsx` (uploaded) |
 | Top thana list for GeoPlot | thana | not uploaded (`Top Thana.xlsx`) |
 | Previous-window FEG file (Comparison sheet only, optional) | `FEG` + earlier date | not uploaded |
 
