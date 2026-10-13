@@ -20,7 +20,8 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 |---|---|
 | `scripts/fege_choke_check.py` | Reads the FEG and OSS files, runs detection, builds every sheet, writes `FEGE_Choked_Flat_Sites_<zone>_vN.xlsx` |
 | `scripts/geoplot_satellite.py` | Renders the national, thana, and cluster satellite maps (JPEG for the GeoPlot sheet, Leaflet HTML) |
-| `scripts/fege_choke_check_ericsson.py` | Ericsson runner. Maps the Ericsson export columns onto the rule roles, reuses the detection from `fege_choke_check.py`, and writes Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only |
+| `scripts/fege_choke_check_ericsson.py` | Ericsson runner (v1, v2). Maps the Ericsson export columns onto the rule roles, reuses the detection from `fege_choke_check.py`, and writes Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only |
+| `scripts/fege_peak_touch_ericsson.py` | Ericsson runner (v3). Peak-touch method on `Max DL Capacity Usage (Mbps)`: hours within 5% below the window Peak, graded Severe ≥70% / High ≥50% / Medium ≥40% / Low ≥20%. Same three sheets |
 
 ### Ericsson column mapping
 
@@ -33,7 +34,9 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 
 v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
-Run: `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+
+Run (v3 Peak-touch method): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` command is needed to open `.rar` uploads.
 

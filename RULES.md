@@ -16,8 +16,21 @@ Source file: `FEG_KPI_Eric.xlsb` (columns `Date`, `Hour`, `ERBS`, `Max DL Capaci
 |---|---|---|---|---|
 | v1 | `Max DL Capacity Usage (Mbps)` | `Max UL Capacity Usage(Mbps)` median | none (all four severities) | Dashboard, 2. HourlyChartOfIssueSites, 3. Hourly KPI |
 | v2 | `Total Capcity,Mbps` only | none shown (Max Total Capacity shown instead) | hours on cap ≥ **50%** (Severe only) | same three sheets |
+| v3 | `Max DL Capacity Usage (Mbps)` only | none | Peak-touch method (below) | same three sheets |
 
-From v2 on, read **only** `Total Capcity,Mbps` as the choke trace and show no other counter. List a site only when its hours on cap are at least 50% of the window. Detection shapes, tolerances, and the day / last-day rules are unchanged; the floor is applied after detection. Runner: `scripts/fege_choke_check_ericsson.py --trace total --min-hours-pct 50`.
+v2: read **only** `Total Capcity,Mbps` as the choke trace and show no other counter. List a site only when its hours on cap are at least 50% of the window. Detection shapes, tolerances, and the day / last-day rules are unchanged; the floor is applied after detection. Runner: `scripts/fege_choke_check_ericsson.py --trace total --min-hours-pct 50`.
+
+### v3 Peak-touch method (replaces the v84 shape detection for Ericsson)
+
+Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Usage (Mbps)`.
+
+- **Peak** = the highest hourly value of the window (the red Peak line on each chart).
+- **Touch level** = Peak × 95%. An hour **touches** the Peak when its value is within 5% below the Peak (at or above the Touch level, the orange line).
+- **Touch ratio** = touch hours ÷ total hours with data for that site.
+- Severity from the touch ratio: **Severe ≥ 70%**, **High ≥ 50%**, **Medium ≥ 40%**, **Low ≥ 20%**. Under 20% is not listed.
+- Guards kept from section 4: at least 24 hourly samples and Peak ≥ 20 Mbit/s.
+- Busy-hour touch (08:00–22:00) and Where touched (Busy + off-peak / Busy hours / Off-peak) are shown as information; they do not change the grade.
+- Sort: severity, then touch ratio descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.
 
