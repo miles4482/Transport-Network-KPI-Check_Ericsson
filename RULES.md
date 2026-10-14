@@ -44,6 +44,8 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 
 v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
 
+v12 groups that license list into one category, the share of hours at ≥ 85% of `dlBbCapacityNet`: **≥ 70%**, **50% to under 70%**, **40% to under 50%**. Under 40% is not listed. This category is separate from the Peak-touch severity.
+
 **2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, Below5%Peak, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
 
 ### v9 Site List identity and GeoPlot

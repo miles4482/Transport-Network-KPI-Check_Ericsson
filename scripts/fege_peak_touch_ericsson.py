@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v11.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v12.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -56,6 +56,13 @@ LICENSE_CAP_COL = "dlBbCapacityNet"
 # of its hours.
 LICENSE_USE = 0.85
 LICENSE_HOURS_PCT = 40.0
+# Category of the listed license sites, by share of hours at ≥ LICENSE_USE.
+# Under LICENSE_HOURS_PCT is not listed, so there is no band below 40%.
+LICENSE_CATEGORIES = (
+    ("≥ 70%", 70.0, "severe", "At least 70% of the hours"),
+    ("50% to under 70%", 50.0, "high", "From 50% up to 70% of the hours"),
+    ("40% to under 50%", 40.0, "moderate", "From 40% up to 50% of the hours"),
+)
 TRACE_COL = eric.ERIC_DL_COL
 TRACE_LABEL = "Max DL Capacity Usage"
 TOUCH_BAND = 0.05
@@ -87,6 +94,14 @@ SEVERITY_NOTES = (
 )
 CHART_DATA_PER_ROW = eric.CHART_DATA_PER_ROW
 CHART_DATA_BLOCK_ROWS = eric.CHART_DATA_BLOCK_ROWS
+
+
+def license_category(share: float) -> str:
+    """Band for a listed license site. Share is hours at ≥85% of the license."""
+    for name, floor, _style, _rule in LICENSE_CATEGORIES:
+        if share >= floor:
+            return name
+    return LICENSE_CATEGORIES[-1][0]
 
 
 def severity(touch_pct: float) -> str | None:
@@ -734,7 +749,7 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
     ws.set_row(row, 22)
     ws.merge_range(row, 0, row, 9, "License usage", group)
     row += 1
-    ws.set_row(row, 48)
+    ws.set_row(row, 64)
     ws.merge_range(
         row,
         0,
@@ -744,6 +759,8 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         f"({LICENSE_NODE_COL} = ERBS). An hour counts when {TRACE_COL} / dlBbCapacityNet "
         f"≥ {use_pct}%. A site is listed when those hours are at least "
         f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
+        f"License usage category is that share of hours: ≥ 70%, 50% to under 70%, "
+        f"or 40% to under 50%. "
         f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
         f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored.",
         styles["note"],
@@ -766,6 +783,33 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         eric._tile_formats(book),
     )
     row += 4
+    counts = {name: 0 for name, _floor, _style, _rule in LICENSE_CATEGORIES}
+    for rec in records:
+        counts[license_category(rec["share"])] += 1
+    ws.set_row(row, 22)
+    ws.merge_range(row, 0, row, 9, "License usage category", styles["section"])
+    row += 1
+    ws.set_row(row, 28)
+    ws.write(row, 0, "Category", styles["header"])
+    ws.merge_range(row, 1, row, 3, f"Share of hours at ≥{use_pct}% of license", styles["header"])
+    ws.write(row, 4, "Sites", styles["header"])
+    row += 1
+    for name, _floor, style, rule in LICENSE_CATEGORIES:
+        ws.set_row(row, 18)
+        ws.write(row, 0, name, styles[style])
+        ws.merge_range(row, 1, row, 3, rule, styles["text"])
+        ws.write_number(row, 4, counts[name], styles["int"])
+        row += 1
+    ws.set_row(row, 18)
+    ws.write(row, 0, "Total listed", styles["header"])
+    ws.merge_range(
+        row, 1, row, 3,
+        f"At least {LICENSE_HOURS_PCT:.0f}% of hours at ≥{use_pct}% of license",
+        styles["header"],
+    )
+    ws.write_number(row, 4, len(records), styles["int"])
+    row += 2
+
     headers = [
         "No.",
         "ERBS",
@@ -778,46 +822,47 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         "Median usage (%)",
         f"Where ≥{use_pct}%",
     ]
-    ws.set_row(row, 22)
-    ws.merge_range(
-        row,
-        0,
-        row,
-        9,
-        f"Sites at ≥{use_pct}% of license for ≥{LICENSE_HOURS_PCT:.0f}% of hours"
-        f"    ·    {len(records)}",
-        styles["section"],
-    )
-    row += 1
-    ws.set_row(row, 32)
-    for col, text in enumerate(headers):
-        ws.write(row, col, text, styles["header"])
-    row += 1
-    for n, rec in enumerate(records):
-        zebra = n % 2 == 1
-        chart_i = chart_index[rec["site"]]
-        ws.set_row(row, 18)
-        nfmt = styles["num_z"] if zebra else styles["num"]
-        ifmt = styles["int_z"] if zebra else styles["int"]
-        cfmt = styles["center_z"] if zebra else styles["center"]
-        pfmt = styles["pct_z"] if zebra else styles["pct"]
-        link = styles["link_z"] if zebra else styles["link"]
-        ws.write_number(row, 0, chart_i + 1, ifmt)
-        ws.write_url(
-            row,
-            1,
-            f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
-            link,
-            string=rec["site"],
+    for name, _floor, _style, _rule in LICENSE_CATEGORIES:
+        group_rows = [rec for rec in records if license_category(rec["share"]) == name]
+        if not group_rows:
+            continue
+        ws.set_row(row, 22)
+        ws.merge_range(
+            row, 0, row, 9,
+            f"{name} of hours at ≥{use_pct}% of license    ·    {len(group_rows)} sites",
+            styles["section"],
         )
-        ws.write_number(row, 2, rec["license"], nfmt)
-        ws.write_number(row, 3, rec["hours_on"], ifmt)
-        ws.write_number(row, 4, rec["hours_n"], ifmt)
-        ws.write_number(row, 5, rec["share"], pfmt)
-        ws.write_number(row, 6, rec["peak"], nfmt)
-        ws.write_number(row, 7, rec["peak_ratio"], pfmt)
-        ws.write_number(row, 8, rec["median_ratio"], pfmt)
-        ws.write_string(row, 9, rec["cap_when"], cfmt)
+        row += 1
+        ws.set_row(row, 32)
+        for col, text in enumerate(headers):
+            ws.write(row, col, text, styles["header"])
+        row += 1
+        for n, rec in enumerate(group_rows):
+            zebra = n % 2 == 1
+            chart_i = chart_index[rec["site"]]
+            ws.set_row(row, 18)
+            nfmt = styles["num_z"] if zebra else styles["num"]
+            ifmt = styles["int_z"] if zebra else styles["int"]
+            cfmt = styles["center_z"] if zebra else styles["center"]
+            pfmt = styles["pct_z"] if zebra else styles["pct"]
+            link = styles["link_z"] if zebra else styles["link"]
+            ws.write_number(row, 0, chart_i + 1, ifmt)
+            ws.write_url(
+                row,
+                1,
+                f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+                link,
+                string=rec["site"],
+            )
+            ws.write_number(row, 2, rec["license"], nfmt)
+            ws.write_number(row, 3, rec["hours_on"], ifmt)
+            ws.write_number(row, 4, rec["hours_n"], ifmt)
+            ws.write_number(row, 5, rec["share"], pfmt)
+            ws.write_number(row, 6, rec["peak"], nfmt)
+            ws.write_number(row, 7, rec["peak_ratio"], pfmt)
+            ws.write_number(row, 8, rec["median_ratio"], pfmt)
+            ws.write_string(row, 9, rec["cap_when"], cfmt)
+            row += 1
         row += 1
 
 
