@@ -22,8 +22,8 @@ Grade by touch ratio:
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
 Peak of at least 20 Mbit/s to be scored.
 
-Sheets written: Dashboard, 2. HourlyChartOfIssueSites (with hidden
-_ChartData), 3. Hourly KPI.
+Sheets written: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites
+(with hidden _ChartData), 3. Hourly KPI, 5. GeoPlot.
 """
 
 from __future__ import annotations
@@ -42,8 +42,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v8.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v9.xlsx"
 SITE_LIST_SHEET = "1. Site List"
+GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "touch levelbelow5%"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
@@ -183,6 +184,81 @@ def _page(ws, title: str, *, fit_width: bool = True) -> None:
     fcc._page(ws, title, fit_width=fit_width)
     ws.set_header(f"&L&8&K1F4E79{title}&R&8{fcc.REPORT_TITLE}  |  {eric.ZONE}")
     ws.set_footer(f"&L&8Touch = {TRACE_LABEL} within 5% below the Peak&R&8Page &P of &N")
+
+
+def site_code(erbs: str) -> str:
+    """Physical site code is the first 7 characters of the ERBS."""
+    return str(erbs).strip()[:7]
+
+
+# GeoPlot legend uses Moderate. The Peak-touch grade for that band is Medium.
+GEO_SEV = {
+    SEV_SEVERE: "Severe",
+    SEV_HIGH: "High",
+    SEV_MEDIUM: "Moderate",
+    SEV_LOW: "Low",
+}
+GEO_SEV_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3}
+
+
+def load_physical() -> tuple[pd.DataFrame, dict[str, str], dict[str, str]]:
+    """Site code, Tech, and Site Type from the physical database."""
+    path = fcc._find_input(GEO_FILE)
+    if path is None:
+        raise SystemExit(f"Physical site database not found: {GEO_FILE}")
+    geo = fcc.load_site_geo(path)
+    tech = fcc.tech_by_site_from_geo(geo)
+    types = fcc.site_type_by_site_from_geo(geo)
+    print(f"Physical database {path.name}: {len(geo):,} sites", flush=True)
+    return geo, tech, types
+
+
+def attach_site_identity(
+    charts: list[dict],
+    tech_by_code: dict[str, str],
+    type_by_code: dict[str, str],
+) -> None:
+    """Stamp Tech and Site Type onto each issue ERBS from its site code."""
+    missing = 0
+    for item in charts:
+        code = site_code(item["site"])
+        item["site_code"] = code
+        item["tech"] = tech_by_code.get(code, fcc.TECH_4G)
+        item["site_type"] = type_by_code.get(code) or "Not found"
+        if code not in type_by_code:
+            missing += 1
+    print(f"Site list: {len(charts)} ERBS, {missing} with no physical-database row", flush=True)
+
+
+def geo_issue_records(charts: list[dict]) -> tuple[list[dict], int]:
+    """One GeoPlot point per physical site that has a dashboard issue ERBS.
+
+    Severity is the worst Peak-touch grade among those ERBS. Medium is drawn
+    as Moderate so it uses the existing map legend. A site listed only by the
+    license rule (no Peak-touch grade) is drawn as Low.
+    """
+    by_code: dict[str, dict] = {}
+    for item in charts:
+        code = item["site_code"]
+        touch = item["touch"]
+        sev = GEO_SEV[touch["severity"]] if touch else None
+        cur = by_code.get(code)
+        if cur is None:
+            by_code[code] = {
+                "site": code,
+                "severity": sev or "Low",
+                "license_only": sev is None,
+            }
+            continue
+        if sev is None:
+            continue
+        cur["license_only"] = False
+        if GEO_SEV_RANK[sev] < GEO_SEV_RANK[cur["severity"]]:
+            cur["severity"] = sev
+    records = [{"site": row["site"], "severity": row["severity"]} for row in by_code.values()]
+    records.sort(key=lambda row: (GEO_SEV_RANK[row["severity"]], row["site"]))
+    license_only = sum(1 for row in by_code.values() if row["license_only"])
+    return records, license_only
 
 
 def issue_charts(touch_records: list[dict], license_records: list[dict]) -> list[dict]:
@@ -1134,10 +1210,10 @@ def _listed_because(item: dict) -> str:
 
 
 def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
-    """Issue sites from the Dashboard. Tech, Site Type, and OSS KPI stay blank."""
+    """Issue sites from the Dashboard. Tech and Site Type come from the physical database."""
     ws = book.add_worksheet(SITE_LIST_SHEET)
     _page(ws, "Site list", fit_width=False)
-    ws.set_footer("&L&8Tech, Site Type, and OSS KPI are blank until those files are uploaded&R&8Page &P of &N")
+    ws.set_footer("&L&8Tech and Site Type from the physical site database. OSS KPI columns are blank&R&8Page &P of &N")
     ws.set_tab_color("#375623")
     use_pct = f"{LICENSE_USE * 100:.0f}"
     identity = [
@@ -1172,8 +1248,9 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
     ws.set_row(1, 32)
     ws.merge_range(
         1, 0, 1, col - 1,
-        f"{period_txt}. Tech, Site Type, and the OSS KPI columns are blank. "
-        "They will be filled when the physical site database and the OSS KPI files are uploaded. "
+        f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}, "
+        "matched on the first 7 characters of the ERBS. "
+        "OSS KPI columns stay blank until the OSS rollup is run. "
         "There is no Avg peak line. touch levelbelow5% is Peak × 95%.",
         styles["note"],
     )
@@ -1220,8 +1297,7 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
             ws.write(header_row + 1, col + offset, name, sub)
         col += len(names)
 
-    blank_cols = [2, 15]  # Tech, Site Type
-    blank_cols += list(range(oss_start, col))
+    blank_cols = list(range(oss_start, col))
     for i, item in enumerate(charts):
         row = header_row + 2 + i
         zebra = i % 2 == 1
@@ -1241,6 +1317,7 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
         ws.write_url(
             row, 1, f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}", link, string=item["site"]
         )
+        ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
         ws.write_string(row, 3, _listed_because(item), tfmt)
         ws.write_string(row, 4, severity, cfmt)
         ws.write_number(row, 5, lines["peak"], nfmt)
@@ -1257,6 +1334,7 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
         else:
             for c in (11, 12, 13, 14):
                 ws.write_blank(row, c, None, cfmt)
+        ws.write_string(row, 15, item.get("site_type") or "Not found", cfmt)
         for c in blank_cols:
             ws.write_blank(row, c, None, cfmt)
     last = header_row + 1 + max(len(charts), 1)
@@ -1528,6 +1606,8 @@ def write_workbook(
     # One chart per site from either list, and both tables link to it.
     stats = license_summary.get("stats_by_site", {}) if license_summary else {}
     attach_chart_lines(work, charts, stats)
+    geo, tech_by_code, type_by_code = load_physical()
+    attach_site_identity(charts, tech_by_code, type_by_code)
     write_dashboard(
         book, styles, source_name, period_txt, n_sites, n_scored, records,
         link_charts=True,
@@ -1543,7 +1623,26 @@ def write_workbook(
         write_snapshots(book, styles, work, records, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
         write_hourly(book, styles, work, records)
+    geo_records, license_only_sites = geo_issue_records(charts)
+    print(
+        f"GeoPlot: {len(geo_records)} physical sites from {len(charts)} ERBS "
+        f"({license_only_sites} license-only, drawn as Low)",
+        flush=True,
+    )
+    fcc.GEO_FILE = GEO_FILE
+    fcc._write_geoplot(book, styles, work, geo_records, geo, path, tech_by_code)
+    geo_ws = book.get_worksheet_by_name(fcc.GEO_SHEET)
+    geo_ws.set_row(4, 32)
+    geo_ws.merge_range(
+        4, 0, 4, 17,
+        "Each dot is one physical site (the first 7 characters of the ERBS). "
+        "Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate. "
+        f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
+        styles["note"],
+    )
     book.close()
+    for jpeg in path.parent.glob(path.stem + "_GeoPlot_*.jpg"):
+        jpeg.unlink()
 
 
 def main() -> None:

@@ -44,7 +44,17 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 
 v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
 
-**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, touch levelbelow5%, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Tech, Site Type, and the OSS KPI columns (Data/User 4H and 1H) are blank until the physical site database and the OSS KPI files are uploaded. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, touch levelbelow5%, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+
+### v9 Site List identity and GeoPlot
+
+Physical database: `Physical_Site_Database_14Oct26.xlsx`. Top thanas: `Top Thana.xlsx`.
+
+The physical site code is the first 7 characters of the ERBS. That code matches the Site Code column.
+
+**1. Site List** copies Tech (4G or 4G+5G) and Site Type (GF, RTT, GFRT, and the other values in the file) from that row. A code with no row shows Tech **4G** and Site Type **Not found**. The OSS KPI columns (Data/User 4H and 1H) stay blank until the OSS rollup is run.
+
+**5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. A site listed only by the license rule is drawn as Low. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
 
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
@@ -69,7 +79,7 @@ Dates, `V1` / `V2`, and `part1` / `part2` in the name say how to combine that fi
 
 `OSS` and `FEG` use the same combine order. For each date, merge that version’s part1 + part2, then merge the versions (V1 + V2) into the final file for that date. Keep OSS finals and FEG finals separate. If a later upload uses a different version or part count, follow the tokens in the names the same way.
 
-No Ericsson files are uploaded yet. Wait for the FEG, OSS, physical site database, and top-thana files before building. Skip the Comparison sheet until a previous-window FEG file is provided.
+Ericsson files in the repo: `FEG_KPI_Eric.xlsb`, `DL_License_File.xlsx`, `Physical_Site_Database_14Oct26.xlsx`, `Top Thana.xlsx`, and the 11 Oct OSS KPI RARs. OSS columns on Site List stay blank until the cell rollup is run. Skip the Comparison sheet until a previous-window FEG file is provided.
 
 ---
 
