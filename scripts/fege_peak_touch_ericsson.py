@@ -43,11 +43,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v14.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v15.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
 LICENSE_FILE = "DL_License_File.xlsb"
+REPORT_PERIOD = ""
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
 LICENSE_CAP_COL = "dlBbCapacityNet"
@@ -201,7 +202,8 @@ _FCC_PAGE = fcc._page
 
 def _page(ws, title: str, *, fit_width: bool = True) -> None:
     _FCC_PAGE(ws, title, fit_width=fit_width)
-    ws.set_header(f"&L&8&K1F4E79{title}&R&8{fcc.REPORT_TITLE}  |  {eric.ZONE}")
+    window = f"  |  {REPORT_PERIOD}" if REPORT_PERIOD else ""
+    ws.set_header(f"&L&8&K1F4E79{title}&R&8{fcc.REPORT_TITLE}  |  {eric.ZONE}{window}")
     ws.set_footer(f"&L&8Touch = {TRACE_LABEL} at or above Below5%Peak (Peak × 95%)&R&8Page &P of &N")
 
 
@@ -527,7 +529,9 @@ def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None
 
         ws.set_row(top, 26)
         ws.merge_range(
-            top, 0, top, 7, f"{i + 1:02d}    {site}    ·    {rec['severity']}", styles["banner"]
+            top, 0, top, 7,
+            f"{i + 1:02d}    {site}    ·    {REPORT_PERIOD}    ·    {rec['severity']}",
+            styles["banner"],
         )
         labels = [
             (0, "Peak (Mbit/s)", f"{peak:.2f}"),
@@ -1038,7 +1042,7 @@ def write_license_snapshots(book, styles, summary: dict, chart_start, chart_end)
             0,
             top,
             7,
-            f"{i + 1:02d}    {site}    ·    {rec['share']:.1f}% of hours at ≥{use_pct:.0f}% of license",
+            f"{i + 1:02d}    {site}    ·    {REPORT_PERIOD}    ·    {rec['share']:.1f}% of hours at ≥{use_pct:.0f}% of license",
             styles["banner"],
         )
         labels = [
@@ -1745,7 +1749,11 @@ def write_issue_snapshots(
         if lic:
             tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
         ws.set_row(top, 26)
-        ws.merge_range(top, 0, top, 7, f"{i + 1:02d}    {site}    ·    {'    ·    '.join(tags)}", styles["banner"])
+        ws.merge_range(
+            top, 0, top, 7,
+            f"{i + 1:02d}    {site}    ·    {REPORT_PERIOD}    ·    {'    ·    '.join(tags)}",
+            styles["banner"],
+        )
         labels = [
             (0, "Peak (Mbit/s)", f"{peak:.2f}" if np.isfinite(peak) else "—"),
             (2, f"{TOUCH_LEVEL_NAME} (Mbit/s)", f"{touch_level:.2f}" if np.isfinite(touch_level) else "—"),
@@ -1845,9 +1853,18 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
     ]
     for i, w in enumerate([14, 10, 16, 28, 14, 16, 18, 18, 20, 18]):
         ws.set_column(i, i, w)
-    ws.set_row(0, 30)
+    ws.set_row(0, 28)
+    ws.merge_range(0, 0, 0, len(headers) - 1, "Hourly KPI — issue sites", styles["title"])
+    ws.set_row(1, 18)
+    ws.merge_range(
+        1, 0, 1, len(headers) - 1,
+        f"{REPORT_PERIOD}    ·    hourly    ·    every issue site",
+        styles["subtitle"],
+    )
+    header_row = 2
+    ws.set_row(header_row, 30)
     for col, text in enumerate(headers):
-        ws.write(0, col, text, styles["header"])
+        ws.write(header_row, col, text, styles["header"])
 
     order = {item["site"]: i for i, item in enumerate(charts)}
     license_of = {
@@ -1859,7 +1876,7 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
     hourly["_order"] = hourly["eNodeB Name"].map(order)
     hourly = hourly.sort_values(["_order", "ts"])
     parity = {item["site"]: i % 2 for i, item in enumerate(charts)}
-    excel_row = 0
+    excel_row = header_row
     for site, date, hour, rx, on_cap, peak, level in zip(
         hourly["eNodeB Name"],
         hourly["Date"],
@@ -1897,8 +1914,9 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
             ws.write_string(
                 excel_row, 9, "Yes" if float(rx) >= LICENSE_USE * float(lic) else "No", styles["center" + z]
             )
-    ws.autofilter(0, 0, max(excel_row, 1), len(headers) - 1)
-    ws.repeat_rows(0, 0)
+    ws.autofilter(header_row, 0, max(excel_row, header_row + 1), len(headers) - 1)
+    ws.repeat_rows(header_row, header_row)
+    ws.freeze_panes(header_row + 1, 0)
     ws.set_zoom(110)
 
 
@@ -1919,6 +1937,9 @@ def write_workbook(
     n_sites = int(work["eNodeB Name"].nunique())
     n_scored = int(work.loc[work["Peak"].notna(), "eNodeB Name"].nunique())
     period_txt = f"{period_start.strftime('%d %b %Y')} – {period_end.strftime('%d %b %Y')}"
+    global REPORT_PERIOD
+    REPORT_PERIOD = period_txt
+    fcc.REPORT_PERIOD = period_txt
     chart_end = period_end.normalize()
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
     license_records = license_summary["records"] if license_summary else []

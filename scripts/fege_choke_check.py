@@ -53,6 +53,8 @@ NIGHT_END = 6  # inclusive, the valley on the sample charts
 KPI_YEAR = 2026
 ANALYSIS_START = pd.Timestamp(f"{KPI_YEAR}-10-08")
 ANALYSIS_END = pd.Timestamp(f"{KPI_YEAR}-10-10")
+# Filled by the Ericsson runner with the scored window, e.g. "11 Oct 2026 – 13 Oct 2026".
+REPORT_PERIOD = ""
 COMPARE_OLD_START = pd.Timestamp(f"{KPI_YEAR}-10-02")
 COMPARE_OLD_END = pd.Timestamp(f"{KPI_YEAR}-10-04")
 COMPARE_OLD_FILE = "FEG_KPI_DHAKA_5Oct.part1.rar"
@@ -2730,6 +2732,7 @@ def _write_geoplot(
     ws.set_row(1, 18)
     ws.merge_range(
         "A2:R2",
+        f"{(REPORT_PERIOD + '    ·    ') if REPORT_PERIOD else ''}"
         f"Google satellite    ·    Physical sites: {len(classified)}"
         f"    ·    4G: {n4}    ·    5G: {n5}"
         f"    ·    Issue 4G: {n_issue_4g}    ·    Issue 4G+5G: {n_issue_4g5g}"
@@ -3702,6 +3705,7 @@ def _write_immediate_actions(book, styles, records: list[dict], busy_rows: list[
         0,
         1,
         7,
+        f"{('Window ' + REPORT_PERIOD + '. ') if REPORT_PERIOD else ''}"
         "Severe or High only. OR across Data 4H, User 4H, Data 1H, and User 1H: "
         "if any one of those four windows matches, the site is listed. "
         "Each site is listed once, under the strongest tag: Data Volume > 100 GB, "
@@ -3827,6 +3831,7 @@ def _write_missing_feg_port(book, styles, sites: list[str]) -> None:
         0,
         1,
         4,
+        f"{('Window ' + REPORT_PERIOD + '. ') if REPORT_PERIOD else ''}"
         f"{len(sites):,} sites are in the OSS KPI and missing from the FEG file. "
         "The FEG port is not configured, so FEG KPI is not collected and these sites "
         "are not choke-scored. Configure the FEG port for each site below. "
