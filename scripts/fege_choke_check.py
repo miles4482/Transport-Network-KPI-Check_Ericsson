@@ -4532,21 +4532,6 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
         "Tech",
         "Severity",
         "Site Type",
-        "4 BH Flag",
-        "1 BH Flag",
-        "4/1BH Flag",
-        "Chocked %_Data Busy Hour",
-        "Chocked %_User Busy Hour",
-        "Data Busy Hour_TP",
-        "User Busy Hour_TP",
-        "Chocked %_Data Busy Hour",
-        "Chocked %_User Busy Hour",
-        "Data Busy Hour_TP",
-        "User Busy Hour_TP",
-        "Chocked %_Data Busy Hour",
-        "Chocked %_User Busy Hour",
-        "Data Busy Hour",
-        "User Busy Hour",
     ]
     data_day_headers = [f"DataBusyHour ({label})" for label in day_labels]
     user_day_headers = [f"UserBusyHour ({label})" for label in day_labels]
@@ -4570,7 +4555,7 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
     day1_widths = [12] * len(days)
     match_widths = [12, 14, 16, 16, 16, 16, 16, 12, 14]
     widths = (
-        [5, 16, 10, 12, 14, 12, 12, 14, 22, 22, 16, 16, 22, 22, 16, 16, 22, 22, 16, 16]
+        [5, 16, 10, 12, 14]
         + day_widths
         + match_widths
         + day_widths
@@ -4624,26 +4609,7 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
     user1_start = data1_end + 1
     user1_end = user1_start + len(user_day_headers) + len(match_1) - 1
     site_end = 4  # No. / eNodeB Name / Tech / Severity / Site Type
-    flag4_col = 5
-    flag1_col = 6
-    flag41_col = 7
-    filter1_start = 8
-    filter1_end = 11  # Filtering(1H only)
-    filter4_start = 12
-    filter4_end = 15  # Filtering(4H only)
-    filter_start = 16
-    filter_end = 19  # Filtering(7H/4H/1H)
     hdr_site = _busy_section_header(book, NAVY, "white")
-    hdr_bhflag = _busy_section_header(book, "#FFF2CC", "#7F6000")
-    hdr_flag4 = _busy_section_header(book, "#C65911", "white")
-    hdr_flag1 = _busy_section_header(book, "#6C3483", "white")
-    hdr_flag41 = _busy_section_header(book, "#833C0C", "white")
-    hdr_filter1 = _busy_section_header(book, "#E2D4F8", "#5B2C6F")
-    hdr_filter1_col = _busy_section_header(book, "#1B4F72", "white")
-    hdr_filter4 = _busy_section_header(book, "#F4CBE8", "#9B2D8A")
-    hdr_filter4_col = _busy_section_header(book, "#134F5C", "white")
-    hdr_filter = _busy_section_header(book, "#C6EFCE", "#006100")
-    hdr_filter_col = _busy_section_header(book, "#548235", "white")
     hdr_data7 = _busy_section_header(book, "#2471A3", "white")
     hdr_user7 = _busy_section_header(book, "#0D7377", "white")
     hdr_data4 = _busy_section_header(book, "#C65911", "white")
@@ -4651,15 +4617,6 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
     hdr_data1 = _busy_section_header(book, "#6C3483", "white")
     hdr_user1 = _busy_section_header(book, "#1A5276", "white")
     col_fmt = [hdr_site] * len(headers)
-    col_fmt[flag4_col] = hdr_flag4
-    col_fmt[flag1_col] = hdr_flag1
-    col_fmt[flag41_col] = hdr_flag41
-    for col in range(filter1_start, filter1_end + 1):
-        col_fmt[col] = hdr_filter1_col
-    for col in range(filter4_start, filter4_end + 1):
-        col_fmt[col] = hdr_filter4_col
-    for col in range(filter_start, filter_end + 1):
-        col_fmt[col] = hdr_filter_col
     for col in range(data7_start, data7_end + 1):
         col_fmt[col] = hdr_data7
     for col in range(user7_start, user7_end + 1):
@@ -4681,10 +4638,6 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
 
     ws.set_row(group_row, 22)
     _group(0, site_end, "Site", hdr_site)
-    _group(flag4_col, flag41_col, "BH Flag", hdr_bhflag)
-    _group(filter1_start, filter1_end, "Filtering(1H only)", hdr_filter1)
-    _group(filter4_start, filter4_end, "Filtering(4H only)", hdr_filter4)
-    _group(filter_start, filter_end, "Filtering(7H/4H/1H)", hdr_filter)
     _group(data7_start, data7_end, "DataBusyHour (7 BusyHour)", hdr_data7)
     _group(user7_start, user7_end, "UserBusyHour (7 BusyHour)", hdr_user7)
     _group(data4_start, data4_end, "DataBusyHour (4 BusyHour)", hdr_data4)
@@ -4736,28 +4689,6 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
             styles["below"] if site_type == "Not found" else c,
         )
         col += 1
-
-        def _write_flag(on: bool) -> int:
-            ws.write_string(
-                row, col, "Yes" if on else "", styles["yes"] if on else c
-            )
-            return col + 1
-
-        col = _write_flag(bool(rec.get("flag_4h")))
-        col = _write_flag(bool(rec.get("flag_1h")))
-        col = _write_flag(bool(rec.get("flag_41h")))
-        col = _write_flag(bool(rec.get("data1_choke_high")))
-        col = _write_flag(bool(rec.get("user1_choke_high")))
-        col = _write_flag(bool(rec.get("data1_busy_poor")))
-        col = _write_flag(bool(rec.get("user1_busy_poor")))
-        col = _write_flag(bool(rec.get("data4_choke_high")))
-        col = _write_flag(bool(rec.get("user4_choke_high")))
-        col = _write_flag(bool(rec.get("data4_busy_poor")))
-        col = _write_flag(bool(rec.get("user4_busy_poor")))
-        col = _write_flag(bool(rec.get("data_choke_high")))
-        col = _write_flag(bool(rec.get("user_choke_high")))
-        col = _write_flag(bool(rec.get("data_busy_poor")))
-        col = _write_flag(bool(rec.get("user_busy_poor")))
 
         def _write_match_block(
             prefix: str,
