@@ -32,17 +32,16 @@ Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Us
 - Busy-hour touch (08:00–22:00) and Where touched (Busy + off-peak / Busy hours / Off-peak) are shown as information; they do not change the grade.
 - Sort: severity, then touch ratio descending, then site name.
 
-### v4 Dashboard_License
+### v4 and v5 Dashboard_License
 
 Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `NodeId` (matches ERBS), `ENodeBFunctionId`, `dlBbCapacityNet` (the DL capacity license installed on the node, Mbps, one value for the window).
 
-Sheet **Dashboard_License**, added to the v3 workbook:
+| Version | Hour counts when usage / license | Site listed when | Sheet order |
+|---|---|---|---|
+| v4 | ≥ 90% | those hours ≥ 40% | Dashboard_License last |
+| v5 | ≥ **80%** | those hours ≥ **30%** | Dashboard, then Dashboard_License, then the hourly charts |
 
-- An hour counts when `Max DL Capacity Usage (Mbps) / dlBbCapacityNet ≥ 90%`.
-- A site is listed when those hours are at least **40%** of its hours.
-- A license of 0 or below, or an ERBS with no license row, is not scored.
-- Columns: License (Mbps), Hours ≥90%, Total hours, Share of hours (%), Peak Max DL, Peak / license (%), Median usage (%), Where ≥90%.
-- Sort: share of hours descending, then site name.
+v5 sheet **2. HourlyChartOfIssueSites** is the Dashboard_License list. Each chart draws Max DL Capacity Usage, the license (`dlBbCapacityNet`), and the 80% line. The site name on Dashboard_License jumps to that chart. `3. Hourly KPI` holds the same sites. A license of 0 or below, or an ERBS with no license row, is not scored. Sort: share of hours descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.
 

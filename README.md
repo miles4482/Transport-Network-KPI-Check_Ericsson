@@ -36,7 +36,9 @@ v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
 Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
-Run (v3 Peak-touch method, v4 adds Dashboard_License from `DL_License_File.xlsx`): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v5: Dashboard, then Dashboard_License, then hourly charts of the license sites): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+
+v5 lists a site when `Max DL Capacity Usage / dlBbCapacityNet` is at least 80% for at least 30% of its hours. Each chart shows the usage, the license, and the 80% line.
 
 Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` command is needed to open `.rar` uploads.
 

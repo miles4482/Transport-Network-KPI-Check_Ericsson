@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v4.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v5.xlsx"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
@@ -50,8 +50,8 @@ LICENSE_CAP_COL = "dlBbCapacityNet"
 # An hour counts when Max DL Capacity Usage / dlBbCapacityNet is at or above
 # this share. A site is listed when such hours are at least LICENSE_HOURS_PCT
 # of its hours.
-LICENSE_USE = 0.90
-LICENSE_HOURS_PCT = 40.0
+LICENSE_USE = 0.80
+LICENSE_HOURS_PCT = 30.0
 TRACE_COL = eric.ERIC_DL_COL
 TRACE_LABEL = "Max DL Capacity Usage"
 TOUCH_BAND = 0.05
@@ -183,7 +183,7 @@ def _page(ws, title: str, *, fit_width: bool = True) -> None:
     ws.set_footer(f"&L&8Touch = {TRACE_LABEL} within 5% below the Peak&R&8Page &P of &N")
 
 
-def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, records) -> None:
+def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, records, *, link_charts: bool = True) -> None:
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
     ws.set_tab_color("#C65911")
@@ -310,13 +310,16 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, re
             pfmt = styles["pct_z"] if zebra else styles["pct"]
             link = styles["link_z"] if zebra else styles["link"]
             ws.write_number(row, 0, i + 1, ifmt)
-            ws.write_url(
-                row,
-                1,
-                f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}",
-                link,
-                string=rec["site"],
-            )
+            if link_charts:
+                ws.write_url(
+                    row,
+                    1,
+                    f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}",
+                    link,
+                    string=rec["site"],
+                )
+            else:
+                ws.write_string(row, 1, rec["site"], styles["text_z"] if zebra else styles["text"])
             ws.write_string(row, 2, rec["severity"], styles[SEVERITY_STYLE[rec["severity"]]])
             ws.write_number(row, 3, rec["peak"], nfmt)
             ws.write_number(row, 4, rec["level"], nfmt)
@@ -532,12 +535,12 @@ def write_hourly(book, styles, work, records) -> None:
 
 
 def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
-    """Sites whose Max DL usage sits at >=90% of the installed license.
+    """Sites whose Max DL usage sits at or above the license threshold.
 
     dlBbCapacityNet is the capacity license on the node (NodeId = ERBS), one
     value for the whole window. An hour counts when
-    Max DL Capacity Usage (Mbps) / dlBbCapacityNet >= 90%. A site is listed
-    when those hours are at least 40% of its hours.
+    Max DL Capacity Usage (Mbps) / dlBbCapacityNet >= LICENSE_USE. A site is
+    listed when those hours are at least LICENSE_HOURS_PCT of its hours.
     """
     cap = pd.to_numeric(lic[LICENSE_CAP_COL], errors="coerce")
     by_node = dict(zip(lic[LICENSE_NODE_COL].astype(str).str.strip(), cap))
@@ -582,8 +585,12 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
             }
         )
     records.sort(key=lambda r: (-r["share"], r["site"]))
+    listed = [rec["site"] for rec in records]
+    hourly = df.loc[df["site"].isin(listed)].copy()
+    hourly["ratio"] = hourly["rx"] / hourly["lic"]
     return {
         "records": records,
+        "hourly": hourly,
         "feg_sites": int(df["site"].nunique()),
         "license_nodes": int(lic[LICENSE_NODE_COL].nunique()),
         "matched": int(df.loc[df["lic"].notna(), "site"].nunique()),
@@ -594,7 +601,7 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
 
 
 def write_license_dashboard(book, styles, source_name, period_txt, summary: dict) -> None:
-    """Dashboard_License: sites using >=90% of the installed DL license."""
+    """Dashboard_License: sites using the installed DL license at the set threshold."""
     ws = book.add_worksheet(LICENSE_SHEET)
     _page(ws, "License usage")
     ws.set_footer("&L&8License usage = Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
@@ -641,17 +648,18 @@ def write_license_dashboard(book, styles, source_name, period_txt, summary: dict
         tf,
     )
 
+    use_pct = f"{LICENSE_USE * 100:.0f}"
     headers = [
         "No.",
         "ERBS",
         "License (Mbps)",
-        "Hours ≥90%",
+        f"Hours ≥{use_pct}%",
         "Total hours",
         "Share of hours (%)",
         "Peak Max DL (Mbps)",
         "Peak / license (%)",
         "Median usage (%)",
-        "Where ≥90%",
+        f"Where ≥{use_pct}%",
     ]
     row = 7
     ws.set_row(row, 22)
@@ -673,9 +681,15 @@ def write_license_dashboard(book, styles, source_name, period_txt, summary: dict
         ifmt = styles["int_z"] if zebra else styles["int"]
         cfmt = styles["center_z"] if zebra else styles["center"]
         pfmt = styles["pct_z"] if zebra else styles["pct"]
-        tfmt = styles["text_z"] if zebra else styles["text"]
+        link = styles["link_z"] if zebra else styles["link"]
         ws.write_number(row, 0, i + 1, ifmt)
-        ws.write_string(row, 1, rec["site"], tfmt)
+        ws.write_url(
+            row,
+            1,
+            f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}",
+            link,
+            string=rec["site"],
+        )
         ws.write_number(row, 2, rec["license"], nfmt)
         ws.write_number(row, 3, rec["hours_on"], ifmt)
         ws.write_number(row, 4, rec["hours_n"], ifmt)
@@ -686,6 +700,213 @@ def write_license_dashboard(book, styles, source_name, period_txt, summary: dict
         ws.write_string(row, 9, rec["cap_when"], cfmt)
         row += 1
     ws.autofilter(8, 0, max(row - 1, 8), len(headers) - 1)
+    ws.set_zoom(110)
+
+
+def write_license_snapshots(book, styles, summary: dict, chart_start, chart_end) -> None:
+    """One chart per Dashboard_License site: usage, the license, and the 80% line."""
+    records = summary["records"]
+    hourly = summary["hourly"]
+    ws = book.add_worksheet(fcc.SNAP_SHEET)
+    _page(ws, "Hourly chart of license issue sites", fit_width=False)
+    ws.set_footer("&L&8License usage = Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
+    ws.set_zoom(100)
+    ws.set_print_scale(100)
+    ws.set_tab_color(fcc.BLUE)
+    data = book.add_worksheet("_ChartData")
+    data.hide()
+    for col, width in enumerate([18, 16, 18, 16, 18, 16, 18, 16]):
+        ws.set_column(col, col, width)
+    block = fcc.BLOCK_ROWS
+    cat_fmt = book.add_format({"font_name": "Calibri", "font_size": 8, "align": "center"})
+    chart_days = list(pd.date_range(chart_start, chart_end, freq="D"))
+    by_site = {site: g for site, g in hourly.groupby("site", sort=False)}
+    use_pct = LICENSE_USE * 100
+
+    print(f"Writing {len(records)} license charts...")
+    for i, rec in enumerate(records):
+        if i and i % 100 == 0:
+            print(f"  charts {i}/{len(records)}", flush=True)
+        top = i * block
+        site = rec["site"]
+        s = by_site[site]
+        s = s[(s["date"] >= chart_start) & (s["date"] <= chart_end)].sort_values(["date", "hour"])
+        c0 = (i % CHART_DATA_PER_ROW) * 5
+        r0 = (i // CHART_DATA_PER_ROW) * CHART_DATA_BLOCK_ROWS
+        for offset, name in enumerate(("Date", "Time", "Rx", "License", "Threshold")):
+            data.write(r0, c0 + offset, name)
+        rx_by_key = {
+            (d.normalize(), int(h)): float(v) for d, h, v in zip(s["date"], s["hour"], s["rx"])
+        }
+        license_mbps = float(rec["license"])
+        threshold = license_mbps * LICENSE_USE
+        dates: list[str] = []
+        times: list[str] = []
+        plotted: list[float] = [license_mbps, threshold, float(rec["peak"])]
+        r = r0
+        for day in chart_days:
+            date_label = f"{int(day.day)}/{fcc.MONTHS[int(day.month) - 1]}"
+            for hour in range(24):
+                r += 1
+                dates.append(date_label if hour == 0 else "")
+                times.append(f"{hour:02d}:00")
+                if hour == 0:
+                    data.write_string(r, c0, date_label, cat_fmt)
+                else:
+                    data.write_blank(r, c0, None)
+                data.write_string(r, c0 + 1, f"{hour:02d}:00", cat_fmt)
+                value = rx_by_key.get((day.normalize(), hour))
+                if value is None or not np.isfinite(value):
+                    data.write_blank(r, c0 + 2, None)
+                else:
+                    data.write_number(r, c0 + 2, value)
+                    plotted.append(value)
+                data.write_number(r, c0 + 3, license_mbps)
+                data.write_number(r, c0 + 4, threshold)
+        n = r
+        first = r0 + 1
+
+        ws.set_row(top, 26)
+        ws.merge_range(
+            top,
+            0,
+            top,
+            7,
+            f"{i + 1:02d}    {site}    ·    {rec['share']:.1f}% of hours at ≥{use_pct:.0f}% of license",
+            styles["banner"],
+        )
+        labels = [
+            (0, "License dlBbCapacityNet (Mbps)", f"{license_mbps:.2f}"),
+            (2, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}"),
+            (4, f"Hours ≥{use_pct:.0f}%", f"{rec['hours_on']} / {rec['hours_n']}  ({rec['share']:.1f}%)"),
+            (6, "Peak Max DL (Mbps)", f"{rec['peak']:.2f}  ({rec['peak_ratio']:.1f}%)"),
+        ]
+        ws.set_row(top + 1, 16)
+        ws.set_row(top + 2, 20)
+        for col, label, _value in labels:
+            ws.merge_range(top + 1, col, top + 1, col + 1, label, styles["kpi_label"])
+        for col, _label, value in labels:
+            ws.merge_range(top + 2, col, top + 2, col + 1, value, styles["kpi_value"])
+        ws.set_row(top + 3, 8)
+
+        chart = book.add_chart({"type": "line"})
+        chart.show_blanks_as("gap")
+        chart.set_title(
+            {"name": site, "name_font": {"name": "Calibri", "size": 16, "color": "#595959"}}
+        )
+        series = (
+            (f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25}),
+            (
+                f"License ({license_mbps:.2f} Mbps)",
+                3,
+                {"color": "#C00000", "width": 1.5, "dash_type": "dash"},
+            ),
+            (
+                f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)",
+                4,
+                {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"},
+            ),
+        )
+        for name, offset, line in series:
+            chart.add_series(
+                {
+                    "name": name,
+                    "categories": ["_ChartData", first, c0, n, c0 + 1],
+                    "categories_data": [dates, times],
+                    "values": ["_ChartData", first, c0 + offset, n, c0 + offset],
+                    "line": line,
+                    "marker": {"type": "none"},
+                }
+            )
+        chart.set_x_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 8, "color": "#595959", "rotation": -90},
+                "label_position": "nextTo",
+                "label_align": "center",
+                "position_axis": "on_tick",
+                "major_tick_mark": "none",
+                "minor_tick_mark": "none",
+                "major_gridlines": {"visible": False},
+                "minor_gridlines": {"visible": False},
+                "line": {"color": "#B0B0B0"},
+            }
+        )
+        y_max, y_unit = fcc._chart_y_scale(plotted)
+        chart.set_y_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 9, "color": "#595959"},
+                "min": 0,
+                "max": y_max,
+                "major_unit": y_unit,
+                "major_gridlines": {"visible": True, "line": {"color": "#D9D9D9"}},
+                "line": {"none": True},
+            }
+        )
+        chart.set_legend({"position": "top", "font": {"name": "Calibri", "size": 9}})
+        chart.set_chartarea({"border": {"color": "#D0D0D0"}, "fill": {"color": "white"}})
+        chart.set_plotarea(
+            {
+                "border": {"none": True},
+                "fill": {"color": "white"},
+                "layout": {"x": 0.06, "y": 0.16, "width": 0.91, "height": 0.58},
+            }
+        )
+        chart.set_size({"width": 1200, "height": 410})
+        ws.insert_chart(top + 4, 0, chart, {"x_offset": 6, "y_offset": 6, "object_position": 2})
+        for rr in range(top + 4, top + block):
+            ws.set_row(rr, 16)
+    if records:
+        ws.set_h_pagebreaks([i * block for i in range(1, len(records))])
+
+
+def write_license_hourly(book, styles, summary: dict) -> None:
+    """Hourly rows for the Dashboard_License sites, in the same order as the charts."""
+    ws = book.add_worksheet("3. Hourly KPI")
+    _page(ws, "Hourly license usage — listed sites")
+    ws.set_footer("&L&8License usage = Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
+    ws.set_tab_color("#5B9BD5")
+    use_pct = f"{LICENSE_USE * 100:.0f}"
+    headers = [
+        "Date",
+        "Time",
+        eric.ERIC_SITE_COL,
+        TRACE_COL,
+        "dlBbCapacityNet",
+        "Usage / license (%)",
+        f"≥{use_pct}% of license",
+    ]
+    for i, w in enumerate([14, 10, 16, 28, 18, 20, 18]):
+        ws.set_column(i, i, w)
+    ws.set_row(0, 30)
+    for col, text in enumerate(headers):
+        ws.write(0, col, text, styles["header"])
+
+    order = {rec["site"]: i for i, rec in enumerate(summary["records"])}
+    hourly = summary["hourly"].copy()
+    hourly["_order"] = hourly["site"].map(order)
+    hourly = hourly.sort_values(["_order", "date", "hour"])
+    parity = {rec["site"]: i % 2 for i, rec in enumerate(summary["records"])}
+    excel_row = 0
+    for site, date, hour, rx, lic, ratio, hit in zip(
+        hourly["site"],
+        hourly["date"],
+        hourly["hour"],
+        hourly["rx"],
+        hourly["lic"],
+        hourly["ratio"],
+        hourly["hit"],
+    ):
+        excel_row += 1
+        z = "_z" if parity[site] else ""
+        ws.write_datetime(excel_row, 0, date.to_pydatetime(), styles["date" + z])
+        ws.write_datetime(excel_row, 1, time(int(hour), 0), styles["time" + z])
+        ws.write_string(excel_row, 2, site, styles["text" + z])
+        ws.write_number(excel_row, 3, float(rx), styles["num" + z])
+        ws.write_number(excel_row, 4, float(lic), styles["num" + z])
+        ws.write_number(excel_row, 5, 100.0 * float(ratio), styles["pct" + z])
+        ws.write_string(excel_row, 6, "Yes" if bool(hit) else "No", styles["center" + z])
+    ws.autofilter(0, 0, max(excel_row, 1), len(headers) - 1)
+    ws.repeat_rows(0, 0)
     ws.set_zoom(110)
 
 
@@ -707,12 +928,22 @@ def write_workbook(
     period_txt = f"{period_start.strftime('%d %b %Y')} – {period_end.strftime('%d %b %Y')}"
     chart_end = period_end.normalize()
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
-    write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, records)
-    write_snapshots(book, styles, work, records, chart_start, chart_end)
-    print("Writing hourly KPI...", flush=True)
-    write_hourly(book, styles, work, records)
+    # Dashboard_License sits directly after Dashboard. The hourly charts and
+    # the hourly KPI follow the license list, and each license site name
+    # jumps to its chart.
+    write_dashboard(
+        book, styles, source_name, period_txt, n_sites, n_scored, records,
+        link_charts=license_summary is None,
+    )
     if license_summary is not None:
         write_license_dashboard(book, styles, source_name, period_txt, license_summary)
+        write_license_snapshots(book, styles, license_summary, chart_start, chart_end)
+        print("Writing hourly KPI...", flush=True)
+        write_license_hourly(book, styles, license_summary)
+    else:
+        write_snapshots(book, styles, work, records, chart_start, chart_end)
+        print("Writing hourly KPI...", flush=True)
+        write_hourly(book, styles, work, records)
     book.close()
 
 
