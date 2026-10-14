@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v6.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v7.xlsx"
+TOUCH_LEVEL_NAME = "touch levelbelow5%"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
@@ -239,7 +240,7 @@ def write_dashboard(
         f"Method: only {TRACE_COL} is read. Peak = the highest hourly value of the window "
         f"(red Peak line). An hour touches the Peak when its value is within "
         f"{TOUCH_BAND * 100:.0f}% below the Peak (at or above {100 - TOUCH_BAND * 100:.0f}% of "
-        "Peak, the orange Touch level line). Touch ratio = touch hours / total hours with data. "
+        f"Peak, the orange {TOUCH_LEVEL_NAME} line). Touch ratio = touch hours / total hours with data. "
         "Severe ≥ 70%, High ≥ 50%, Medium ≥ 40%, Low ≥ 20%; under 20% is not listed. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s. "
@@ -302,7 +303,7 @@ def write_dashboard(
         "ERBS",
         "Severity",
         "Peak (Mbit/s)",
-        "Touch level (Mbit/s)",
+        f"{TOUCH_LEVEL_NAME} (Mbit/s)",
         "Touch hours",
         "Total hours",
         "Touch ratio (%)",
@@ -431,7 +432,7 @@ def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None
         )
         labels = [
             (0, "Peak (Mbit/s)", f"{peak:.2f}"),
-            (2, f"Touch level ({100 - TOUCH_BAND * 100:.0f}% of Peak, Mbit/s)", f"{level:.2f}"),
+            (2, f"{TOUCH_LEVEL_NAME} (Mbit/s)", f"{level:.2f}"),
             (
                 4,
                 "Touch hours (all 24h)",
@@ -460,7 +461,7 @@ def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None
             (f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25}),
             (f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}),
             (
-                f"Touch level ({level:.2f} Mbit/s)",
+                f"{TOUCH_LEVEL_NAME} ({level:.2f} Mbit/s)",
                 4,
                 {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"},
             ),
@@ -529,7 +530,7 @@ def write_hourly(book, styles, work, records) -> None:
         TRACE_COL,
         "Touches Peak",
         "Peak (Mbit/s)",
-        f"Touch level ({100 - TOUCH_BAND * 100:.0f}% of Peak)",
+        f"{TOUCH_LEVEL_NAME} (Mbit/s)",
     ]
     for i, w in enumerate([14, 10, 16, 28, 14, 16, 24]):
         ws.set_column(i, i, w)
@@ -1139,7 +1140,7 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
         elif touch:
             labels = [
                 (0, "Peak (Mbit/s)", f"{peak:.2f}"),
-                (2, f"Touch level ({100 - TOUCH_BAND * 100:.0f}% of Peak)", f"{touch_level:.2f}"),
+                (2, f"{TOUCH_LEVEL_NAME} (Mbit/s)", f"{touch_level:.2f}"),
                 (4, "Touch hours (all 24h)", f"{touch['hours_on']} / {touch['hours_n']}  ({touch['hours_pct']:.1f}%)"),
                 (6, "Busy-hour touch (08–22)", f"{touch['busy_on']} / {touch['busy_n']}  ({touch['busy_pct']:.1f}%)"),
             ]
@@ -1164,7 +1165,7 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
         series = [(f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25})]
         if touch:
             series.append((f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}))
-            series.append((f"Touch level ({touch_level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}))
+            series.append((f"{TOUCH_LEVEL_NAME} ({touch_level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}))
         if lic:
             series.append((f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}))
             series.append((f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}))
@@ -1234,7 +1235,7 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
         TRACE_COL,
         "Touches Peak",
         "Peak (Mbit/s)",
-        "Touch level (Mbit/s)",
+        f"{TOUCH_LEVEL_NAME} (Mbit/s)",
         "dlBbCapacityNet",
         "Usage / license (%)",
         f"≥{use_pct}% of license",

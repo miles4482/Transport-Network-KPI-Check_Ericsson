@@ -25,7 +25,7 @@ v2: read **only** `Total Capcity,Mbps` as the choke trace and show no other coun
 Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Usage (Mbps)`.
 
 - **Peak** = the highest hourly value of the window (the red Peak line on each chart).
-- **Touch level** = Peak × 95%. An hour **touches** the Peak when its value is within 5% below the Peak (at or above the Touch level, the orange line).
+- **touch levelbelow5%** = Peak × 95%. An hour **touches** the Peak when its value is within 5% below the Peak (at or above touch levelbelow5%, the orange line). It is not an average.
 - **Touch ratio** = touch hours ÷ total hours with data for that site.
 - Severity from the touch ratio: **Severe ≥ 70%**, **High ≥ 50%**, **Medium ≥ 40%**, **Low ≥ 20%**. Under 20% is not listed.
 - Guards kept from section 4: at least 24 hourly samples and Peak ≥ 20 Mbit/s.
@@ -44,7 +44,7 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 
 v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
 
-**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. The chart draws the lines for the list the site is on: Peak and Touch level, and/or the license and the 85% line. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. The chart draws the lines for the list the site is on: Peak and touch levelbelow5%, and/or the license and the 85% line. A site on both lists has five lines. A Peak-touch-only site has three. A license-only site has three (usage, license, 85%). Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
 
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
