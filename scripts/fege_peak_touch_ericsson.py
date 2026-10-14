@@ -29,6 +29,7 @@ Sheets written: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites
 from __future__ import annotations
 
 import argparse
+import pickle
 import sys
 import time as pytime
 from collections import defaultdict
@@ -42,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v10.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v11.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -180,8 +181,11 @@ def analyse_touch(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
     return work, records
 
 
+_FCC_PAGE = fcc._page
+
+
 def _page(ws, title: str, *, fit_width: bool = True) -> None:
-    fcc._page(ws, title, fit_width=fit_width)
+    _FCC_PAGE(ws, title, fit_width=fit_width)
     ws.set_header(f"&L&8&K1F4E79{title}&R&8{fcc.REPORT_TITLE}  |  {eric.ZONE}")
     ws.set_footer(f"&L&8Touch = {TRACE_LABEL} at or above Below5%Peak (Peak × 95%)&R&8Page &P of &N")
 
@@ -291,6 +295,7 @@ def write_dashboard(
     link_charts: bool = True,
     chart_index: dict[str, int] | None = None,
     license_summary: dict | None = None,
+    oss_note: str = "",
 ) -> None:
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
@@ -311,9 +316,8 @@ def write_dashboard(
         f"{eric.ZONE} transmission    ·    {period_txt}    ·    hourly    ·    {source_name}",
         styles["subtitle"],
     )
-    ws.set_row(2, 64)
-    ws.merge_range(
-        "A3:J3",
+    ws.set_row(2, 96 if oss_note else 64)
+    method = (
         f"Method: only {TRACE_COL} is read. Peak = the highest hourly value in the window "
         f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
         f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
@@ -322,9 +326,11 @@ def write_dashboard(
         "Severe ≥ 60%, High 50% to under 60%, Medium 40% to under 50%, Low 20% to under 40%. "
         "Under 20% is not listed. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
-        f"least {MIN_PEAK_MBPS:.0f} Mbit/s.",
-        styles["note"],
+        f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
+    if oss_note:
+        method = f"{method} {oss_note}"
+    ws.merge_range("A3:J3", method, styles["note"])
 
     row = eric._write_tiles(
         ws,
@@ -1170,6 +1176,190 @@ def attach_chart_lines(work: pd.DataFrame, charts: list[dict], stats_by_site: di
         print(f"  {len(missing)} issue sites have no positive license, so those two lines are blank")
 
 
+OSS_PART_GLOB = "OSS KPI Hourly Cel Level_*.part1.rar"
+OSS_CACHE = Path("/tmp/eric_oss_site_hour.pkl")
+ERIC_OSS_RENAME = {
+    "EUtranCell Id": fcc.OSS_CELL_COL,
+    "Total Traffic (GB)": fcc.OSS_VOL_COL,
+    "Average User Throughput in DownLink (Mbps)_Num": fcc.OSS_TP_N_COL,
+    "Average User Throughput in DownLink (Mbps)_Denom": fcc.OSS_TP_D_COL,
+    "Average Number of Users in a Cell": fcc.OSS_MEAN_USER_COL,
+    "Maximum Number of Users in a Cell": fcc.OSS_USER_COL,
+    "DL PRB Utilization (%)_Num": fcc.OSS_PRB_N_COL,
+    "DL PRB Utilization (%)_Denom": fcc.OSS_PRB_D_COL,
+}
+OSS_VALUE_KEYS = (
+    "tp_data_4h",
+    "prb_data_4h",
+    "vol_data_4h",
+    "users_data_4h",
+    "mean_data_4h",
+    "tp_user_4h",
+    "prb_user_4h",
+    "vol_user_4h",
+    "users_user_4h",
+    "mean_user_4h",
+    "tp_data_1h",
+    "prb_data_1h",
+    "vol_data_1h",
+    "users_data_1h",
+    "mean_data_1h",
+    "tp_user_1h",
+    "prb_user_1h",
+    "vol_user_1h",
+    "users_user_1h",
+    "mean_user_1h",
+)
+
+
+def load_ericsson_oss() -> pd.DataFrame:
+    """Cell KPI → one row per physical site-hour. L900 cells are dropped.
+
+    V1 and V2 are the two halves of the day (hours 0–11 and 12–23). The site
+    code is the first 7 characters of EUtranCell Id, the same key as the ERBS.
+    """
+    parts = sorted(Path("/workspace").glob(OSS_PART_GLOB))
+    if not parts:
+        raise SystemExit(f"No OSS parts matching {OSS_PART_GLOB}")
+    stamp = tuple((path.name, path.stat().st_mtime_ns) for path in parts)
+    if OSS_CACHE.exists():
+        cached = pickle.loads(OSS_CACHE.read_bytes())
+        if cached.get("stamp") == stamp:
+            frame = cached["frame"]
+            print(f"OSS cache: {len(frame):,} site-hours, {frame['site'].nunique():,} sites", flush=True)
+            return frame
+    frames = []
+    for part1 in parts:
+        dest = Path("/tmp/oss_cell_extract") / part1.name.replace(".part1.rar", "")
+        csv_path = fcc._extract_split_rar(part1, dest)
+        print(f"Loaded {csv_path.name}", flush=True)
+        frames.append(pd.read_csv(csv_path))
+    raw = pd.concat(frames, ignore_index=True)
+    raw = raw.rename(columns=ERIC_OSS_RENAME)
+    raw = raw.dropna(subset=["Date", "Hour", fcc.OSS_CELL_COL])
+    cell = raw[fcc.OSS_CELL_COL].astype(str).str.strip()
+    raw[fcc.OSS_CELL_COL] = cell
+    raw = raw.loc[~cell.str.lower().isin(["", "nan", "none"])].copy()
+    text = raw["Date"].astype(str).str.strip()
+    text = text.mask(text.str.fullmatch(r"\d{1,2}-[A-Za-z]{3}"), text + "-2026")
+    raw["Date"] = pd.to_datetime(text, format="%d-%b-%Y", errors="coerce").dt.normalize()
+    raw["Hour"] = pd.to_numeric(raw["Hour"], errors="coerce")
+    raw = raw.dropna(subset=["Date", "Hour"])
+    raw["Hour"] = raw["Hour"].astype(int)
+    raw["eNodeB Name"] = raw[fcc.OSS_CELL_COL].str[:7]
+    raw["Time"] = raw["Hour"].map(lambda hour: f"{int(hour):02d}:00")
+    n_cell = len(raw)
+    kept = int(fcc._capacity_mask(raw[fcc.OSS_CELL_COL]).sum())
+    print(f"L900 coverage dropped: {n_cell - kept:,} of {n_cell:,} cells", flush=True)
+    site = fcc.aggregate_capacity_cells_to_site(raw)
+    frame = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(site["Date"]).dt.normalize(),
+            "Hour": site["Time"].astype(str).str.slice(0, 2).astype(int),
+            "site": site["eNodeB Name"].astype(str).str.strip(),
+            "vol": pd.to_numeric(site[fcc.OSS_VOL_COL], errors="coerce"),
+            "users": pd.to_numeric(site[fcc.OSS_USER_COL], errors="coerce"),
+            "mean_user": pd.to_numeric(site[fcc.OSS_MEAN_USER_COL], errors="coerce"),
+            "tp_n": pd.to_numeric(site[fcc.OSS_TP_N_COL], errors="coerce"),
+            "tp_d": pd.to_numeric(site[fcc.OSS_TP_D_COL], errors="coerce"),
+            "prb_n": pd.to_numeric(site[fcc.OSS_PRB_N_COL], errors="coerce"),
+            "prb_d": pd.to_numeric(site[fcc.OSS_PRB_D_COL], errors="coerce"),
+        }
+    )
+    frame = frame.drop_duplicates(["site", "Date", "Hour"], keep="last")
+    OSS_CACHE.write_bytes(pickle.dumps({"stamp": stamp, "frame": frame}))
+    days = ", ".join(day.strftime("%-d %b") for day in sorted(frame["Date"].unique()))
+    print(
+        f"OSS site-hours: {len(frame):,}  ·  sites {frame['site'].nunique():,}  ·  {days}",
+        flush=True,
+    )
+    return frame
+
+
+def site_oncap_frame(work: pd.DataFrame) -> pd.DataFrame:
+    """A physical site-hour is on-cap when any of its ERBS touches Below5%Peak."""
+    tmp = pd.DataFrame(
+        {
+            "eNodeB Name": work["eNodeB Name"].map(site_code),
+            "Date": pd.to_datetime(work["Date"]).dt.normalize(),
+            "Hour": work["Hour"].astype(int),
+            "OnCap": work["OnCap"].astype(bool),
+        }
+    )
+    return tmp.groupby(["eNodeB Name", "Date", "Hour"], as_index=False)["OnCap"].any()
+
+
+def oss_issue_records(charts: list[dict]) -> list[dict]:
+    """One Peak-touch grade per physical site, worst ERBS wins."""
+    rank = {SEV_SEVERE: 0, SEV_HIGH: 1, SEV_MEDIUM: 2, SEV_LOW: 3}
+    best: dict[str, dict] = {}
+    for item in charts:
+        code = item["site_code"]
+        touch = item["touch"]
+        sev = touch["severity"] if touch else None
+        cand = rank[sev] if sev else 9
+        cur = best.get(code)
+        if cur is not None and cand >= cur["_rank"]:
+            continue
+        best[code] = {
+            "site": code,
+            "severity": sev or "—",
+            "hours_pct": float(touch["hours_pct"]) if touch else 0.0,
+            "tech": item.get("tech") or fcc.TECH_4G,
+            "site_type": item.get("site_type") or "Not found",
+            "_rank": cand,
+        }
+    return [{key: value for key, value in row.items() if key != "_rank"} for row in best.values()]
+
+
+def prepare_oss(
+    work: pd.DataFrame,
+    charts: list[dict],
+    tech_by_code: dict[str, str],
+    type_by_code: dict[str, str],
+) -> tuple[list[dict], list[str], str]:
+    """Score 7/4/1 busy hours. Returns busy rows, missing-FEG site codes, and a note."""
+    oss = load_ericsson_oss()
+    start = pd.Timestamp(oss["Date"].min())
+    end = pd.Timestamp(oss["Date"].max())
+    feg_start = pd.Timestamp(pd.to_datetime(work["Date"]).min()).normalize()
+    feg_end = pd.Timestamp(pd.to_datetime(work["Date"]).max()).normalize()
+    fcc.ANALYSIS_START = start
+    fcc.ANALYSIS_END = end
+    fcc.OSS_FILE = f"OSS cell KPI {start.strftime('%-d %b')}–{end.strftime('%-d %b %Y')}, L900 dropped"
+    busy = fcc.analyse_urgent_busy_hours(
+        oss, oss_issue_records(charts), site_oncap_frame(work), tech_by_code
+    )
+    for row in busy:
+        code = row["site"]
+        row["site_type"] = type_by_code.get(code) or row.get("site_type") or "Not found"
+        row["tech"] = tech_by_code.get(code, row.get("tech") or fcc.TECH_4G)
+    feg_codes = set(work["eNodeB Name"].map(site_code))
+    missing = sorted(set(oss["site"]) - feg_codes)
+    note = (
+        f"OSS KPI is {start.strftime('%-d %b')}–{end.strftime('%-d %b %Y')} "
+        f"({oss['site'].nunique():,} sites after L900 is dropped). "
+        f"FEG touch hours are {feg_start.strftime('%-d %b')}–{feg_end.strftime('%-d %b %Y')}. "
+        "Those calendars do not overlap, so Hours matched is 0 and the choke flags stay blank. "
+        "DL Throughput, DLPRBUtilization,%, Data Volume, Max User, and Mean User are still "
+        "taken from the OSS busy hours. "
+        f"{len(missing):,} OSS sites have no ERBS in the FEG file (sheet 6. Missing FEG Port)."
+    )
+    print(
+        f"BusyHour sites {len(busy):,}  ·  OSS sites missing from FEG {len(missing):,}",
+        flush=True,
+    )
+    return busy, missing, note
+
+
+def _finite(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+    return number if np.isfinite(number) else float("nan")
+
+
 OSS_BLOCKS = (
     ("DataBusyHour (4 BusyHour)", "4h", "#C65911", (
         "DL Throughput 4h (Mbps)",
@@ -1210,11 +1400,17 @@ def _listed_because(item: dict) -> str:
     return "License"
 
 
-def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
-    """Issue sites from the Dashboard. Tech and Site Type come from the physical database."""
+def write_site_list(
+    book,
+    styles,
+    period_txt,
+    charts: list[dict],
+    busy_by_code: dict[str, dict],
+) -> None:
+    """Issue sites from the Dashboard. Tech, Site Type, and OSS 4H/1H are filled."""
     ws = book.add_worksheet(SITE_LIST_SHEET)
     _page(ws, "Site list", fit_width=False)
-    ws.set_footer("&L&8Tech and Site Type from the physical site database. OSS KPI columns are blank&R&8Page &P of &N")
+    ws.set_footer("&L&8OSS 4H/1H from the cell KPI, rolled to the first 7 characters of the ERBS&R&8Page &P of &N")
     ws.set_tab_color("#375623")
     use_pct = f"{LICENSE_USE * 100:.0f}"
     identity = [
@@ -1249,9 +1445,11 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
     ws.set_row(1, 32)
     ws.merge_range(
         1, 0, 1, col - 1,
-        f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}, "
-        "matched on the first 7 characters of the ERBS. "
-        "OSS KPI columns stay blank until the OSS rollup is run. "
+        f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
+        "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
+        "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
+        "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
+        "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%.",
         styles["note"],
     )
@@ -1298,7 +1496,6 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
             ws.write(header_row + 1, col + offset, name, sub)
         col += len(names)
 
-    blank_cols = list(range(oss_start, col))
     for i, item in enumerate(charts):
         row = header_row + 2 + i
         zebra = i % 2 == 1
@@ -1336,15 +1533,75 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
             for c in (11, 12, 13, 14):
                 ws.write_blank(row, c, None, cfmt)
         ws.write_string(row, 15, item.get("site_type") or "Not found", cfmt)
-        for c in blank_cols:
-            ws.write_blank(row, c, None, cfmt)
+        busy = busy_by_code.get(item.get("site_code", ""), {})
+        for offset, key in enumerate(OSS_VALUE_KEYS):
+            value = _finite(busy.get(key))
+            if np.isfinite(value):
+                ws.write_number(row, oss_start + offset, value, nfmt)
+            else:
+                ws.write_blank(row, oss_start + offset, None, nfmt)
     last = header_row + 1 + max(len(charts), 1)
     ws.autofilter(header_row + 1, 0, last, col - 1)
     ws.repeat_rows(header_row, header_row + 1)
     ws.set_zoom(100)
 
 
-def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, chart_end) -> None:
+def _oss_side_formats(book) -> dict:
+    def _fmt(bg: str, *, num: bool = False, hour: bool = False):
+        spec = {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 9 if not hour else 10,
+            "font_color": "white",
+            "align": "center" if hour or num else "left",
+            "valign": "vcenter",
+            "bg_color": bg,
+            "border": 1,
+            "border_color": "white",
+            "text_wrap": bool(hour),
+        }
+        if num:
+            spec["num_format"] = "0.00"
+        return book.add_format(spec)
+
+    return {
+        "head": book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 10,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": fcc.NAVY,
+                "border": 1,
+                "border_color": "white",
+            }
+        ),
+        "data4": _fmt("#C65911"),
+        "data4_num": _fmt("#C65911", num=True),
+        "data4_hour": _fmt("#C65911", hour=True),
+        "user4": _fmt("#B7950B"),
+        "user4_num": _fmt("#B7950B", num=True),
+        "user4_hour": _fmt("#B7950B", hour=True),
+        "data1": _fmt("#6C3483"),
+        "data1_num": _fmt("#6C3483", num=True),
+        "data1_hour": _fmt("#6C3483", hour=True),
+        "user1": _fmt("#1A5276"),
+        "user1_num": _fmt("#1A5276", num=True),
+        "user1_hour": _fmt("#1A5276", hour=True),
+    }
+
+
+def write_issue_snapshots(
+    book,
+    styles,
+    work,
+    charts: list[dict],
+    chart_start,
+    chart_end,
+    busy_by_code: dict[str, dict] | None = None,
+) -> None:
     """One chart per issue site. Every chart has the same five lines."""
     ws = book.add_worksheet(fcc.SNAP_SHEET)
     _page(ws, "Hourly chart of issue sites", fit_width=False)
@@ -1356,6 +1613,13 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
     data.hide()
     for col, width in enumerate([18, 16, 18, 16, 18, 16, 18, 16]):
         ws.set_column(col, col, width)
+    for col in range(8, 12):
+        ws.set_column(col, col, 12)
+    ws.set_column(12, 12, 20)
+    ws.set_column(13, 13, 28)
+    ws.set_column(14, 14, 12)
+    side_formats = _oss_side_formats(book)
+    busy_by_code = busy_by_code or {}
     block = fcc.BLOCK_ROWS
     cat_fmt = book.add_format({"font_name": "Calibri", "font_size": 8, "align": "center"})
     chart_days = list(pd.date_range(chart_start, chart_end, freq="D"))
@@ -1498,6 +1762,7 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
         )
         chart.set_size({"width": 1200, "height": 410})
         ws.insert_chart(top + 4, 0, chart, {"x_offset": 6, "y_offset": 6, "object_position": 2})
+        fcc._chart_side_table(ws, top, busy_by_code.get(item.get("site_code", ""), {}), side_formats)
         for rr in range(top + 4, top + block):
             ws.set_row(rr, 16)
     if charts:
@@ -1592,6 +1857,7 @@ def write_workbook(
     import xlsxwriter
 
     book = xlsxwriter.Workbook(str(path))
+    fcc._page = _page
     styles = fcc._styles(book)
     period_start = work["Date"].min()
     period_end = work["Date"].max()
@@ -1609,15 +1875,20 @@ def write_workbook(
     attach_chart_lines(work, charts, stats)
     geo, tech_by_code, type_by_code = load_physical()
     attach_site_identity(charts, tech_by_code, type_by_code)
+    busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
+    busy_by_code = {row["site"]: row for row in busy_rows}
     write_dashboard(
         book, styles, source_name, period_txt, n_sites, n_scored, records,
         link_charts=True,
         chart_index=chart_index,
         license_summary=license_summary,
+        oss_note=oss_note,
     )
-    write_site_list(book, styles, period_txt, charts)
+    write_site_list(book, styles, period_txt, charts, busy_by_code)
     if license_summary is not None:
-        write_issue_snapshots(book, styles, work, charts, chart_start, chart_end)
+        write_issue_snapshots(
+            book, styles, work, charts, chart_start, chart_end, busy_by_code
+        )
         print("Writing hourly KPI...", flush=True)
         write_issue_hourly(book, styles, work, charts)
     else:
@@ -1641,6 +1912,28 @@ def write_workbook(
         f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
         styles["note"],
     )
+    link_records = [{"site": item["site_code"]} for item in charts]
+    print(f"Writing BusyHour ({len(busy_rows):,} sites)...", flush=True)
+    fcc._write_busy_hour_plan(book, styles, period_txt, link_records, busy_rows)
+    fcc._write_missing_feg_port(book, styles, missing_feg)
+    immediate_records = []
+    immediate_busy = []
+    for item in charts:
+        touch = item["touch"]
+        rec = {
+            "site": item["site"],
+            "severity": touch["severity"] if touch else "—",
+            "hours_pct": float(touch["hours_pct"]) if touch else 0.0,
+            "tech": item.get("tech") or fcc.TECH_4G,
+            "site_type": item.get("site_type") or "Not found",
+        }
+        immediate_records.append(rec)
+        src = busy_by_code.get(item["site_code"])
+        if src:
+            copy = dict(src)
+            copy.update(rec)
+            immediate_busy.append(copy)
+    fcc._write_immediate_actions(book, styles, immediate_records, immediate_busy)
     book.close()
     for jpeg in path.parent.glob(path.stem + "_GeoPlot_*.jpg"):
         jpeg.unlink()

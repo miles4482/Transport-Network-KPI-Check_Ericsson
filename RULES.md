@@ -52,7 +52,27 @@ Physical database: `Physical_Site_Database_14Oct26.xlsx`. Top thanas: `Top Thana
 
 The physical site code is the first 7 characters of the ERBS. That code matches the Site Code column.
 
-**1. Site List** copies Tech (4G or 4G+5G) and Site Type (GF, RTT, GFRT, and the other values in the file) from that row. A code with no row shows Tech **4G** and Site Type **Not found**. The OSS KPI columns (Data/User 4H and 1H) stay blank until the OSS rollup is run.
+**1. Site List** copies Tech (4G or 4G+5G) and Site Type (GF, RTT, GFRT, and the other values in the file) from that row. A code with no row shows Tech **4G** and Site Type **Not found**.
+
+### v11 OSS cell rollup
+
+OSS files: `OSS KPI Hourly Cel Level_11Oct`, `_12Oct`, and `_13Oct`, each V1.part1+part2 and V2.part1+part2. V1 is hours 0–11 and V2 is hours 12–23. Concatenate them. Do not commit the combined cell CSV.
+
+Ericsson columns map to the same roles:
+
+| Role | Ericsson column |
+|---|---|
+| Cell Name | `EUtranCell Id` |
+| Site | first 7 characters of `EUtranCell Id` |
+| Data Volume,GB | `Total Traffic (GB)` |
+| DL User Throughput N/D | `Average User Throughput in DownLink (Mbps)_Num` / `_Denom` |
+| Mean User | `Average Number of Users in a Cell` |
+| Max User | `Maximum Number of Users in a Cell` |
+| DL PRB Utilization N/D | `DL PRB Utilization (%)_Num` / `_Denom` |
+
+Layer token is still Excel `MID(EUtranCell Id, 8, 3)`. Drop L900 when that token starts with `L09`. Keep every other cell and sum to one row per site-hour. Throughput = Num/Denom. PRB % = (Num/Denom) × 100.
+
+The FEG window is 3–5 Oct and the OSS window is 11–13 Oct. Hours matched stays 0 because no busy hour is also a FEGE touch hour. Choke flags stay blank. The 4H/1H KPI values are still filled. Sheet `6. Missing FEG Port` compares OSS site codes with the first 7 characters of the ERBS. Sheet `7. Immediate actions` is Severe or High only, using the OSS 4H/1H volume and throughput. `URGENTBWINC_BusyHour` scans every capacity OSS site. The chart sheet has the same 4H/1H table to the right of each chart.
 
 **5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. A site listed only by the license rule is drawn as Low. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
 
@@ -79,7 +99,7 @@ Dates, `V1` / `V2`, and `part1` / `part2` in the name say how to combine that fi
 
 `OSS` and `FEG` use the same combine order. For each date, merge that version’s part1 + part2, then merge the versions (V1 + V2) into the final file for that date. Keep OSS finals and FEG finals separate. If a later upload uses a different version or part count, follow the tokens in the names the same way.
 
-Ericsson files in the repo: `FEG_KPI_Eric.xlsb`, `DL_License_File.xlsx`, `Physical_Site_Database_14Oct26.xlsx`, `Top Thana.xlsx`, and the 11 Oct OSS KPI RARs. OSS columns on Site List stay blank until the cell rollup is run. Skip the Comparison sheet until a previous-window FEG file is provided.
+Ericsson files in the repo: `FEG_KPI_Eric.xlsb`, `DL_License_File.xlsx`, `Physical_Site_Database_14Oct26.xlsx`, `Top Thana.xlsx`, and the 11–13 Oct OSS KPI RARs. Skip the Comparison sheet until a previous-window FEG file is provided.
 
 ---
 

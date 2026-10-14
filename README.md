@@ -36,7 +36,7 @@ v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
 Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
-Run (v10: Severe ≥ 60%, and the orange line named Below5%Peak): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v11: OSS 4H/1H, BusyHour, Missing FEG Port, Immediate actions): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 v6 lists a license site when `Max DL Capacity Usage / dlBbCapacityNet` is at least 85% for at least 40% of its hours.
 
@@ -47,7 +47,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | Input | Name hint | In this repo |
 |---|---|---|
 | FEG port KPI (detection source) | `FEG` or `FEGE` in the name | `FEG_KPI_Eric.xlsb` (3–5 Oct 2026, uploaded) |
-| OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | `OSS KPI Hourly Cel Level_11Oct_V1.part1.rar` and the matching V1.part2 / V2 parts (uploaded; Site List OSS columns not filled yet) |
+| OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | `OSS KPI Hourly Cel Level_11Oct`, `_12Oct`, and `_13Oct` (V1 and V2, part1 and part2) |
 | Physical site database (lat/long, district, region, thana, Tech, Site Type) | physical site / site database | `Physical_Site_Database_14Oct26.xlsx` |
 | DL capacity license (`NodeId`, `dlBbCapacityNet`) | license | `DL_License_File.xlsx` (uploaded) |
 | Top thana list for GeoPlot | thana | `Top Thana.xlsx` |
@@ -57,7 +57,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 
 | File | Contents |
 |---|---|
-| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot. Later sheets (4. Method, UrgentTxBWInc, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions, Comparison) wait until the OSS rollup and a previous-window FEG file |
+| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
 
 Working files (`/tmp/.../OSS KPI Hourly site  level_capacity.csv`, combined cell CSVs, extracted RARs, `fege_report_cache.pkl`) are not committed.

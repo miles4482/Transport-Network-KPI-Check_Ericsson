@@ -4603,7 +4603,7 @@ def _write_busy_hour_plan(book, styles, period_txt, records, busy_rows: list[dic
         0,
         1,
         last_col,
-        f"NCCD transmission    ·    {period_txt}    ·    {len(busy_rows)} sites"
+        f"OSS BusyHour    ·    {period_txt}    ·    {len(busy_rows)} sites"
         f"    ·    independent of UrgentTxBWInc"
         f"    ·    7 / 4 / 1 BusyHour from {OSS_FILE}",
         styles["subtitle"],
