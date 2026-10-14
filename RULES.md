@@ -10,7 +10,7 @@ The counter names below (`VS.FEGE.RxMaxSpeed`, `VS.FEGE.TxTotalBW`, the OSS `_N`
 
 ## Ericsson settings (user instructions, 13 Oct 2026)
 
-Source file: `FEG_KPI_Eric.xlsb` (columns `Date`, `Hour`, `ERBS`, `Max DL Capacity Usage (Mbps)`, `Max UL Capacity Usage(Mbps)`, `Total Capcity,Mbps`). Window scored: 3–5 Oct 2026, every hour.
+Source file: `FEG_KPI_Eric.xlsb`. The 13 Oct upload had columns `Date`, `Hour`, `ERBS`, `Max DL Capacity Usage (Mbps)`, `Max UL Capacity Usage(Mbps)`, `Total Capcity,Mbps`, window 3–5 Oct 2026. The 14 Oct upload (v14) has `Date`, `Hour`, `ERBS`, `Max DL Capacity Usage (Mbps)`, `Max UL Capacity Usage (Mbps)`, window **11–13 Oct 2026**, every hour. `Total Capcity,Mbps` is not in that file. The Peak-touch method does not use it.
 
 | Version | RxMaxSpeed role | Reference column | Listing floor | Sheets |
 |---|---|---|---|---|
@@ -34,7 +34,7 @@ Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Us
 
 ### v4 and v5 Dashboard_License
 
-Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `NodeId` (matches ERBS), `ENodeBFunctionId`, `dlBbCapacityNet` (the DL capacity license installed on the node, Mbps, one value for the window).
+v4–v13 source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. v14 source: `DL_License_File.xlsb`, sheet `Sheet1`. One row per node: `NodeId` (matches ERBS), `ENodeBFunctionId`, `dlBbCapacityNet` (the DL capacity license installed on the node, Mbps, one value for the window). v14 also has `ulBbCapacityNet`; the report does not use it.
 
 | Version | Hour counts when usage / license | Site listed when | Sheet order |
 |---|---|---|---|
@@ -74,7 +74,7 @@ Ericsson columns map to the same roles:
 
 Layer token is still Excel `MID(EUtranCell Id, 8, 3)`. Drop L900 when that token starts with `L09`. Keep every other cell and sum to one row per site-hour. Throughput = Num/Denom. PRB % = (Num/Denom) × 100.
 
-The FEG window is 3–5 Oct and the OSS window is 11–13 Oct. Hours matched stays 0 because no busy hour is also a FEGE touch hour. The 4H/1H KPI values are still filled. Sheet `6. Missing FEG Port` compares OSS site codes with the first 7 characters of the ERBS. Sheet `7. Immediate actions` is Severe or High only, using the OSS 4H/1H volume and throughput. `URGENTBWINC_BusyHour` scans every capacity OSS site. On that sheet, skip the BH Flag block and the three Filtering blocks (1H only, 4H only, 7H/4H/1H). Keep Site, and the Data/User 7H, 4H, and 1H blocks. The chart sheet has the same 4H/1H table to the right of each chart.
+v11–v13: the FEG window was 3–5 Oct and the OSS window was 11–13 Oct, so Hours matched stayed 0. v14 scores the 11–13 Oct FEG file, the same days as the OSS files, so Hours matched counts a busy hour that is also a Below5%Peak touch hour on that date. The 4H/1H KPI values are filled in both cases. Sheet `6. Missing FEG Port` compares OSS site codes with the first 7 characters of the ERBS. Sheet `7. Immediate actions` is Severe or High only, using the OSS 4H/1H volume and throughput. `URGENTBWINC_BusyHour` scans every capacity OSS site. On that sheet, skip the BH Flag block and the three Filtering blocks (1H only, 4H only, 7H/4H/1H). Keep Site, and the Data/User 7H, 4H, and 1H blocks. The chart sheet has the same 4H/1H table to the right of each chart.
 
 **5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. A site listed only by the license rule is drawn as Low. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
 
@@ -101,7 +101,7 @@ Dates, `V1` / `V2`, and `part1` / `part2` in the name say how to combine that fi
 
 `OSS` and `FEG` use the same combine order. For each date, merge that version’s part1 + part2, then merge the versions (V1 + V2) into the final file for that date. Keep OSS finals and FEG finals separate. If a later upload uses a different version or part count, follow the tokens in the names the same way.
 
-Ericsson files in the repo: `FEG_KPI_Eric.xlsb`, `DL_License_File.xlsx`, `Physical_Site_Database_14Oct26.xlsx`, `Top Thana.xlsx`, and the 11–13 Oct OSS KPI RARs. Skip the Comparison sheet until a previous-window FEG file is provided.
+Ericsson files in the repo: `FEG_KPI_Eric.xlsb` (11–13 Oct 2026), `DL_License_File.xlsb` (latest license; the older `DL_License_File.xlsx` remains), `Physical_Site_Database_14Oct26.xlsx`, `Top Thana.xlsx`, and the 11–13 Oct OSS KPI RARs. Skip the Comparison sheet until a previous-window FEG file is provided.
 
 ---
 

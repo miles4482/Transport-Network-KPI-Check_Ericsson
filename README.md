@@ -36,7 +36,7 @@ v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
 Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
-Run (v13: BusyHour sheet without BH Flag and Filtering blocks): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v14: FEG and license for 11–13 Oct 2026): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 v6 lists a license site when `Max DL Capacity Usage / dlBbCapacityNet` is at least 85% for at least 40% of its hours.
 
@@ -46,10 +46,10 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 
 | Input | Name hint | In this repo |
 |---|---|---|
-| FEG port KPI (detection source) | `FEG` or `FEGE` in the name | `FEG_KPI_Eric.xlsb` (3–5 Oct 2026, uploaded) |
+| FEG port KPI (detection source) | `FEG` or `FEGE` in the name | `FEG_KPI_Eric.xlsb` (11–13 Oct 2026, uploaded) |
 | OSS cell-level hourly KPI (one date = V1/V2 × part1/part2) | `OSS` in the name | `OSS KPI Hourly Cel Level_11Oct`, `_12Oct`, and `_13Oct` (V1 and V2, part1 and part2) |
 | Physical site database (lat/long, district, region, thana, Tech, Site Type) | physical site / site database | `Physical_Site_Database_14Oct26.xlsx` |
-| DL capacity license (`NodeId`, `dlBbCapacityNet`) | license | `DL_License_File.xlsx` (uploaded) |
+| DL capacity license (`NodeId`, `dlBbCapacityNet`) | license | `DL_License_File.xlsb` (uploaded; older `DL_License_File.xlsx` kept) |
 | Top thana list for GeoPlot | thana | `Top Thana.xlsx` |
 | Previous-window FEG file (Comparison sheet only, optional) | `FEG` + earlier date | not uploaded |
 

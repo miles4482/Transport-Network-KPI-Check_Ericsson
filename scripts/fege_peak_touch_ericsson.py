@@ -43,11 +43,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v13.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v14.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
-LICENSE_FILE = "DL_License_File.xlsx"
+LICENSE_FILE = "DL_License_File.xlsb"
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
 LICENSE_CAP_COL = "dlBbCapacityNet"
@@ -1381,12 +1381,22 @@ def prepare_oss(
         row["tech"] = tech_by_code.get(code, row.get("tech") or fcc.TECH_4G)
     feg_codes = set(work["eNodeB Name"].map(site_code))
     missing = sorted(set(oss["site"]) - feg_codes)
+    overlap = feg_start <= end.normalize() and start.normalize() <= feg_end
+    if overlap:
+        calendar = (
+            "The two calendars overlap, so Hours matched counts a busy hour that is also "
+            "a Below5%Peak touch hour on the same date."
+        )
+    else:
+        calendar = (
+            "Those calendars do not overlap, so Hours matched is 0 and the choke flags stay blank."
+        )
     note = (
         f"OSS KPI is {start.strftime('%-d %b')}–{end.strftime('%-d %b %Y')} "
         f"({oss['site'].nunique():,} sites after L900 is dropped). "
         f"FEG touch hours are {feg_start.strftime('%-d %b')}–{feg_end.strftime('%-d %b %Y')}. "
-        "Those calendars do not overlap, so Hours matched is 0 and the choke flags stay blank. "
-        "DL Throughput, DLPRBUtilization,%, Data Volume, Max User, and Mean User are still "
+        f"{calendar} "
+        "DL Throughput, DLPRBUtilization,%, Data Volume, Max User, and Mean User are "
         "taken from the OSS busy hours. "
         f"{len(missing):,} OSS sites have no ERBS in the FEG file (sheet 6. Missing FEG Port)."
     )
@@ -2007,7 +2017,8 @@ def main() -> None:
     license_summary = None
     license_path = Path(args.license)
     if license_path.exists():
-        lic = pd.read_excel(license_path)
+        engine = "pyxlsb" if license_path.suffix.lower() == ".xlsb" else None
+        lic = pd.read_excel(license_path, engine=engine) if engine else pd.read_excel(license_path)
         missing_cols = {LICENSE_NODE_COL, LICENSE_CAP_COL} - set(lic.columns)
         if missing_cols:
             raise SystemExit(f"{license_path.name} is missing columns: {', '.join(sorted(missing_cols))}")
