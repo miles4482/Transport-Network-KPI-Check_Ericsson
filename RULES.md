@@ -44,7 +44,7 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 
 v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
 
-**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. The chart draws the lines for the list the site is on: Peak and touch levelbelow5%, and/or the license and the 85% line. A site on both lists has five lines. A Peak-touch-only site has three. A license-only site has three (usage, license, 85%). Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, touch levelbelow5%, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Tech, Site Type, and the OSS KPI columns (Data/User 4H and 1H) are blank until the physical site database and the OSS KPI files are uploaded. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
 
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 

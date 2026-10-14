@@ -42,7 +42,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v7.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v8.xlsx"
+SITE_LIST_SHEET = "1. Site List"
 TOUCH_LEVEL_NAME = "touch levelbelow5%"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
@@ -595,30 +596,28 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
     df.loc[scored, "hit"] = df.loc[scored, "rx"] >= LICENSE_USE * df.loc[scored, "lic"]
     df["busy"] = (df["hour"] >= fcc.BUSY_START) & (df["hour"] <= fcc.BUSY_END)
 
-    records: list[dict] = []
+    all_stats = []
     for site, g in df[scored].groupby("site", sort=False):
         hours_n = int(len(g))
         hours_on = int(g["hit"].sum())
-        share = 100.0 * hours_on / hours_n
-        if share < LICENSE_HOURS_PCT:
-            continue
         license_mbps = float(g["lic"].iloc[0])
         peak = float(g["rx"].max())
         busy = g["busy"].to_numpy()
         hit = g["hit"].to_numpy()
-        records.append(
+        all_stats.append(
             {
                 "site": site,
                 "license": license_mbps,
                 "hours_on": hours_on,
                 "hours_n": hours_n,
-                "share": share,
+                "share": 100.0 * hours_on / hours_n,
                 "peak": peak,
                 "peak_ratio": 100.0 * peak / license_mbps,
                 "median_ratio": 100.0 * float(np.median(g["rx"] / license_mbps)),
                 "cap_when": fcc.cap_window(int(hit[busy].sum()), int(hit[~busy].sum())),
             }
         )
+    records = [rec for rec in all_stats if rec["share"] >= LICENSE_HOURS_PCT]
     records.sort(key=lambda r: (-r["share"], r["site"]))
     listed = [rec["site"] for rec in records]
     hourly = df.loc[df["site"].isin(listed)].copy()
@@ -626,6 +625,7 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
     return {
         "records": records,
         "hourly": hourly,
+        "stats_by_site": {rec["site"]: rec for rec in all_stats},
         "feg_sites": int(df["site"].nunique()),
         "license_nodes": int(lic[LICENSE_NODE_COL].nunique()),
         "matched": int(df.loc[df["lic"].notna(), "site"].nunique()),
@@ -1048,8 +1048,225 @@ def write_license_hourly(book, styles, summary: dict) -> None:
     ws.set_zoom(110)
 
 
+def trace_lines(s: pd.DataFrame) -> dict:
+    """Peak and touch levelbelow5% from the site's own hourly Max DL trace."""
+    if s is None or s.empty:
+        return {
+            "peak": float("nan"),
+            "level": float("nan"),
+            "hours_on": 0,
+            "hours_n": 0,
+            "hours_pct": float("nan"),
+            "cap_when": "—",
+        }
+    rx = s["Rx"].to_numpy(dtype=float)
+    hours = s["Hour"].to_numpy(dtype=int)
+    valid = np.isfinite(rx)
+    peak = float(np.nanmax(rx)) if valid.any() else float("nan")
+    level = peak * (1.0 - TOUCH_BAND) if np.isfinite(peak) else float("nan")
+    band = valid & (rx >= level) if np.isfinite(level) else np.zeros(len(rx), dtype=bool)
+    busy = (hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END)
+    hours_n = int(valid.sum())
+    hours_on = int(band.sum())
+    return {
+        "peak": peak,
+        "level": level,
+        "hours_on": hours_on,
+        "hours_n": hours_n,
+        "hours_pct": 100.0 * hours_on / hours_n if hours_n else float("nan"),
+        "cap_when": fcc.cap_window(int((band & busy).sum()), int((band & ~busy).sum())),
+    }
+
+
+def attach_chart_lines(work: pd.DataFrame, charts: list[dict], stats_by_site: dict) -> None:
+    """Give every issue site the five-line inputs, including sites on only one list."""
+    by_site = {site: g for site, g in work.groupby("eNodeB Name", sort=False)}
+    missing = []
+    for item in charts:
+        item["lines"] = trace_lines(by_site.get(item["site"]))
+        stat = stats_by_site.get(item["site"])
+        item["lic_stat"] = stat
+        item["license_mbps"] = float(stat["license"]) if stat else float("nan")
+        if not np.isfinite(item["license_mbps"]):
+            missing.append(item["site"])
+    if missing:
+        print(f"  {len(missing)} issue sites have no positive license, so those two lines are blank")
+
+
+OSS_BLOCKS = (
+    ("DataBusyHour (4 BusyHour)", "4h", "#C65911", (
+        "DL Throughput 4h (Mbps)",
+        "DLPRBUtilization,%",
+        "Data Volume 4h (GB)",
+        "Max User 4h",
+        "Mean User 4h",
+    )),
+    ("UserBusyHour (4 BusyHour)", "4h", "#B7950B", (
+        "DL Throughput 4h (Mbps)",
+        "DLPRBUtilization,%",
+        "Data Volume 4h (GB)",
+        "Max User 4h",
+        "Mean User 4h",
+    )),
+    ("DataBusyHour (1 BusyHour)", "1h", "#6C3483", (
+        "DL Throughput 1h (Mbps)",
+        "DLPRBUtilization,%",
+        "Data Volume 1h (GB)",
+        "Max User 1h",
+        "Mean User 1h",
+    )),
+    ("UserBusyHour (1 BusyHour)", "1h", "#1A5276", (
+        "DL Throughput 1h (Mbps)",
+        "DLPRBUtilization,%",
+        "Data Volume 1h (GB)",
+        "Max User 1h",
+        "Mean User 1h",
+    )),
+)
+
+
+def _listed_because(item: dict) -> str:
+    if item["touch"] and item["license"]:
+        return "Peak touch + License"
+    if item["touch"]:
+        return "Peak touch"
+    return "License"
+
+
+def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
+    """Issue sites from the Dashboard. Tech, Site Type, and OSS KPI stay blank."""
+    ws = book.add_worksheet(SITE_LIST_SHEET)
+    _page(ws, "Site list", fit_width=False)
+    ws.set_footer("&L&8Tech, Site Type, and OSS KPI are blank until those files are uploaded&R&8Page &P of &N")
+    ws.set_tab_color("#375623")
+    use_pct = f"{LICENSE_USE * 100:.0f}"
+    identity = [
+        "No.",
+        "ERBS",
+        "Tech",
+        "Listed because",
+        "Severity",
+        "Peak (Mbit/s)",
+        f"{TOUCH_LEVEL_NAME} (Mbit/s)",
+        "Touch hours",
+        "Total hours",
+        "Touch ratio (%)",
+        "Where touched",
+        "License (Mbps)",
+        f"Hours ≥{use_pct}%",
+        "Share of hours (%)",
+        f"Where ≥{use_pct}%",
+        "Site Type",
+    ]
+    widths = [8, 16, 12, 24, 12, 16, 24, 14, 14, 16, 18, 16, 14, 18, 18, 14]
+    for i, w in enumerate(widths):
+        ws.set_column(i, i, w)
+    oss_start = len(identity)
+    col = oss_start
+    for _title, _kind, _color, names in OSS_BLOCKS:
+        for _name in names:
+            ws.set_column(col, col, 18)
+            col += 1
+    ws.set_row(0, 22)
+    ws.merge_range(0, 0, 0, col - 1, "Site list — Dashboard issue sites", styles["title"])
+    ws.set_row(1, 32)
+    ws.merge_range(
+        1, 0, 1, col - 1,
+        f"{period_txt}. Tech, Site Type, and the OSS KPI columns are blank. "
+        "They will be filled when the physical site database and the OSS KPI files are uploaded. "
+        "There is no Avg peak line. touch levelbelow5% is Peak × 95%.",
+        styles["note"],
+    )
+    header_row = 3
+    ws.set_row(header_row, 18)
+    ws.set_row(header_row + 1, 36)
+    for c, text in enumerate(identity):
+        ws.merge_range(header_row, c, header_row + 1, c, text, styles["header"])
+    col = oss_start
+    for title, _kind, color, names in OSS_BLOCKS:
+        group = book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 10,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": color,
+                "text_wrap": True,
+                "border": 1,
+                "border_color": "white",
+            }
+        )
+        sub = book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 9,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": color,
+                "text_wrap": True,
+                "border": 1,
+                "border_color": "white",
+            }
+        )
+        if len(names) == 1:
+            ws.write(header_row, col, title, group)
+        else:
+            ws.merge_range(header_row, col, header_row, col + len(names) - 1, title, group)
+        for offset, name in enumerate(names):
+            ws.write(header_row + 1, col + offset, name, sub)
+        col += len(names)
+
+    blank_cols = [2, 15]  # Tech, Site Type
+    blank_cols += list(range(oss_start, col))
+    for i, item in enumerate(charts):
+        row = header_row + 2 + i
+        zebra = i % 2 == 1
+        ws.set_row(row, 18)
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        ifmt = styles["int_z"] if zebra else styles["int"]
+        cfmt = styles["center_z"] if zebra else styles["center"]
+        pfmt = styles["pct_z"] if zebra else styles["pct"]
+        tfmt = styles["text_z"] if zebra else styles["text"]
+        link = styles["link_z"] if zebra else styles["link"]
+        lines = item["lines"]
+        touch = item["touch"]
+        stat = item.get("lic_stat")
+        severity = touch["severity"] if touch else "—"
+        where_touch = touch["cap_when"] if touch else lines["cap_when"]
+        ws.write_number(row, 0, i + 1, ifmt)
+        ws.write_url(
+            row, 1, f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}", link, string=item["site"]
+        )
+        ws.write_string(row, 3, _listed_because(item), tfmt)
+        ws.write_string(row, 4, severity, cfmt)
+        ws.write_number(row, 5, lines["peak"], nfmt)
+        ws.write_number(row, 6, lines["level"], nfmt)
+        ws.write_number(row, 7, lines["hours_on"], ifmt)
+        ws.write_number(row, 8, lines["hours_n"], ifmt)
+        ws.write_number(row, 9, lines["hours_pct"], pfmt)
+        ws.write_string(row, 10, where_touch, cfmt)
+        if stat:
+            ws.write_number(row, 11, stat["license"], nfmt)
+            ws.write_number(row, 12, stat["hours_on"], ifmt)
+            ws.write_number(row, 13, stat["share"], pfmt)
+            ws.write_string(row, 14, stat["cap_when"], cfmt)
+        else:
+            for c in (11, 12, 13, 14):
+                ws.write_blank(row, c, None, cfmt)
+        for c in blank_cols:
+            ws.write_blank(row, c, None, cfmt)
+    last = header_row + 1 + max(len(charts), 1)
+    ws.autofilter(header_row + 1, 0, last, col - 1)
+    ws.repeat_rows(header_row, header_row + 1)
+    ws.set_zoom(100)
+
+
 def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, chart_end) -> None:
-    """One chart per issue site from either list. Lines match why the site is listed."""
+    """One chart per issue site. Every chart has the same five lines."""
     ws = book.add_worksheet(fcc.SNAP_SHEET)
     _page(ws, "Hourly chart of issue sites", fit_width=False)
     ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
@@ -1087,9 +1304,10 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
         rx_by_key = {
             (d.normalize(), int(h)): float(v) for d, h, v in zip(s["Date"], s["Hour"], s["Rx"])
         }
-        peak = float(touch["peak"]) if touch else float("nan")
-        touch_level = float(touch["level"]) if touch else float("nan")
-        license_mbps = float(lic["license"]) if lic else float("nan")
+        lines = item["lines"]
+        peak = float(lines["peak"])
+        touch_level = float(lines["level"])
+        license_mbps = float(item.get("license_mbps", float("nan")))
         threshold = license_mbps * LICENSE_USE if np.isfinite(license_mbps) else float("nan")
         dates: list[str] = []
         times: list[str] = []
@@ -1130,27 +1348,12 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
             tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
         ws.set_row(top, 26)
         ws.merge_range(top, 0, top, 7, f"{i + 1:02d}    {site}    ·    {'    ·    '.join(tags)}", styles["banner"])
-        if touch and lic:
-            labels = [
-                (0, "Peak (Mbit/s)", f"{peak:.2f}"),
-                (2, "Touch ratio", f"{touch['hours_on']} / {touch['hours_n']}  ({touch['hours_pct']:.1f}%)"),
-                (4, "License (Mbps)", f"{license_mbps:.2f}"),
-                (6, f"Hours ≥{use_pct:.0f}% of license", f"{lic['hours_on']} / {lic['hours_n']}  ({lic['share']:.1f}%)"),
-            ]
-        elif touch:
-            labels = [
-                (0, "Peak (Mbit/s)", f"{peak:.2f}"),
-                (2, f"{TOUCH_LEVEL_NAME} (Mbit/s)", f"{touch_level:.2f}"),
-                (4, "Touch hours (all 24h)", f"{touch['hours_on']} / {touch['hours_n']}  ({touch['hours_pct']:.1f}%)"),
-                (6, "Busy-hour touch (08–22)", f"{touch['busy_on']} / {touch['busy_n']}  ({touch['busy_pct']:.1f}%)"),
-            ]
-        else:
-            labels = [
-                (0, "License dlBbCapacityNet (Mbps)", f"{license_mbps:.2f}"),
-                (2, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}"),
-                (4, f"Hours ≥{use_pct:.0f}%", f"{lic['hours_on']} / {lic['hours_n']}  ({lic['share']:.1f}%)"),
-                (6, "Peak Max DL (Mbps)", f"{lic['peak']:.2f}  ({lic['peak_ratio']:.1f}%)"),
-            ]
+        labels = [
+            (0, "Peak (Mbit/s)", f"{peak:.2f}" if np.isfinite(peak) else "—"),
+            (2, f"{TOUCH_LEVEL_NAME} (Mbit/s)", f"{touch_level:.2f}" if np.isfinite(touch_level) else "—"),
+            (4, "License (Mbps)", f"{license_mbps:.2f}" if np.isfinite(license_mbps) else "No license"),
+            (6, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}" if np.isfinite(threshold) else "—"),
+        ]
         ws.set_row(top + 1, 16)
         ws.set_row(top + 2, 20)
         for col, label, _value in labels:
@@ -1162,13 +1365,14 @@ def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, c
         chart = book.add_chart({"type": "line"})
         chart.show_blanks_as("gap")
         chart.set_title({"name": site, "name_font": {"name": "Calibri", "size": 16, "color": "#595959"}})
-        series = [(f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25})]
-        if touch:
-            series.append((f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}))
-            series.append((f"{TOUCH_LEVEL_NAME} ({touch_level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}))
-        if lic:
-            series.append((f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}))
-            series.append((f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}))
+        series = [
+            (f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25}, np.isfinite(peak) or True),
+            (f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}, np.isfinite(peak)),
+            (f"{TOUCH_LEVEL_NAME} ({touch_level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}, np.isfinite(touch_level)),
+            (f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}, np.isfinite(license_mbps)),
+            (f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}, np.isfinite(threshold)),
+        ]
+        series = [(name, offset, line) for name, offset, line, ok in series if ok]
         for name, offset, line in series:
             chart.add_series(
                 {
@@ -1247,7 +1451,11 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
         ws.write(0, col, text, styles["header"])
 
     order = {item["site"]: i for i, item in enumerate(charts)}
-    license_of = {item["site"]: item["license"]["license"] for item in charts if item["license"]}
+    license_of = {
+        item["site"]: item["license_mbps"]
+        for item in charts
+        if np.isfinite(item.get("license_mbps", float("nan")))
+    }
     hourly = work.loc[work["eNodeB Name"].isin(order)].copy()
     hourly["_order"] = hourly["eNodeB Name"].map(order)
     hourly = hourly.sort_values(["_order", "ts"])
@@ -1318,12 +1526,15 @@ def write_workbook(
     chart_index = {item["site"]: i for i, item in enumerate(charts)}
     # License results sit on the Dashboard, under the Peak-touch section.
     # One chart per site from either list, and both tables link to it.
+    stats = license_summary.get("stats_by_site", {}) if license_summary else {}
+    attach_chart_lines(work, charts, stats)
     write_dashboard(
         book, styles, source_name, period_txt, n_sites, n_scored, records,
         link_charts=True,
         chart_index=chart_index,
         license_summary=license_summary,
     )
+    write_site_list(book, styles, period_txt, charts)
     if license_summary is not None:
         write_issue_snapshots(book, styles, work, charts, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
