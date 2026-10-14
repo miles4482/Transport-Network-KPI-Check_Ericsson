@@ -5,18 +5,18 @@ Counter: only `Max DL Capacity Usage (Mbps)` from `FEG_KPI_Eric.xlsb`.
 
 For every ERBS over the scored window (the 3 days in the file, every hour):
 
-    Peak        = highest hourly value in the window (the red Peak line)
-    Touch level = Peak x (1 - TOUCH_BAND)   (TOUCH_BAND = 5%)
-    Touch hour  = an hour whose value is at or above the Touch level,
-                  i.e. within 5% below the Peak
-    Touch ratio = touch hours / total hours with data
+    Peak         = highest hourly value in the window (the red Peak line)
+    Below5%Peak  = Peak x (1 - TOUCH_BAND)   (TOUCH_BAND = 5%)
+    Touch hour   = an hour whose value is at or above Below5%Peak,
+                   i.e. within 5% below the Peak
+    Touch ratio  = touch hours / total hours with data
 
 Grade by touch ratio:
 
-    >= 70%  Severe
-    >= 50%  High
-    >= 40%  Medium
-    >= 20%  Low
+    >= 60%  Severe
+    >= 50%  High      (50% to under 60%)
+    >= 40%  Medium    (40% to under 50%)
+    >= 20%  Low       (20% to under 40%)
     <  20%  not listed
 
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
@@ -42,10 +42,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v9.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v10.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
-TOUCH_LEVEL_NAME = "touch levelbelow5%"
+TOUCH_LEVEL_NAME = "Below5%Peak"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
@@ -66,7 +66,7 @@ SEV_HIGH = "High"
 SEV_MEDIUM = "Medium"
 SEV_LOW = "Low"
 SEVERITY_BANDS = (
-    (SEV_SEVERE, 70.0),
+    (SEV_SEVERE, 60.0),
     (SEV_HIGH, 50.0),
     (SEV_MEDIUM, 40.0),
     (SEV_LOW, 20.0),
@@ -79,10 +79,10 @@ SEVERITY_STYLE = {
     SEV_LOW: "low",
 }
 SEVERITY_NOTES = (
-    (SEV_SEVERE, "Severe: at least 70% of the hours touch the Peak (within 5% below it)."),
-    (SEV_HIGH, "High: 50% to under 70% of the hours touch the Peak."),
-    (SEV_MEDIUM, "Medium: 40% to under 50% of the hours touch the Peak."),
-    (SEV_LOW, "Low: 20% to under 40% of the hours touch the Peak. Under 20% is not listed."),
+    (SEV_SEVERE, "Severe: at least 60% of the hours are at or above Below5%Peak."),
+    (SEV_HIGH, "High: 50% to under 60% of the hours are at or above Below5%Peak."),
+    (SEV_MEDIUM, "Medium: 40% to under 50% of the hours are at or above Below5%Peak."),
+    (SEV_LOW, "Low: 20% to under 40% of the hours are at or above Below5%Peak. Under 20% is not listed."),
 )
 CHART_DATA_PER_ROW = eric.CHART_DATA_PER_ROW
 CHART_DATA_BLOCK_ROWS = eric.CHART_DATA_BLOCK_ROWS
@@ -183,7 +183,7 @@ def analyse_touch(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
 def _page(ws, title: str, *, fit_width: bool = True) -> None:
     fcc._page(ws, title, fit_width=fit_width)
     ws.set_header(f"&L&8&K1F4E79{title}&R&8{fcc.REPORT_TITLE}  |  {eric.ZONE}")
-    ws.set_footer(f"&L&8Touch = {TRACE_LABEL} within 5% below the Peak&R&8Page &P of &N")
+    ws.set_footer(f"&L&8Touch = {TRACE_LABEL} at or above Below5%Peak (Peak × 95%)&R&8Page &P of &N")
 
 
 def site_code(erbs: str) -> str:
@@ -314,14 +314,15 @@ def write_dashboard(
     ws.set_row(2, 64)
     ws.merge_range(
         "A3:J3",
-        f"Method: only {TRACE_COL} is read. Peak = the highest hourly value of the window "
-        f"(red Peak line). An hour touches the Peak when its value is within "
-        f"{TOUCH_BAND * 100:.0f}% below the Peak (at or above {100 - TOUCH_BAND * 100:.0f}% of "
-        f"Peak, the orange {TOUCH_LEVEL_NAME} line). Touch ratio = touch hours / total hours with data. "
-        "Severe ≥ 70%, High ≥ 50%, Medium ≥ 40%, Low ≥ 20%; under 20% is not listed. "
+        f"Method: only {TRACE_COL} is read. Peak = the highest hourly value in the window "
+        f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
+        f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
+        f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
+        "Touch ratio = touch hours / hours with data. "
+        "Severe ≥ 60%, High 50% to under 60%, Medium 40% to under 50%, Low 20% to under 40%. "
+        "Under 20% is not listed. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
-        f"least {MIN_PEAK_MBPS:.0f} Mbit/s. "
-        "This version carries Dashboard, 2. HourlyChartOfIssueSites and 3. Hourly KPI only.",
+        f"least {MIN_PEAK_MBPS:.0f} Mbit/s.",
         styles["note"],
     )
 
@@ -331,7 +332,7 @@ def write_dashboard(
         [
             (0, "Sites checked", n_sites, False),
             (2, "Listed (touch ≥ 20%)", len(records), True),
-            (4, "Severe (≥ 70%)", counts[SEV_SEVERE], True),
+            (4, "Severe (≥ 60%)", counts[SEV_SEVERE], True),
             (
                 6,
                 "High / Medium / Low",
@@ -1125,7 +1126,7 @@ def write_license_hourly(book, styles, summary: dict) -> None:
 
 
 def trace_lines(s: pd.DataFrame) -> dict:
-    """Peak and touch levelbelow5% from the site's own hourly Max DL trace."""
+    """Peak and Below5%Peak from the site's own hourly Max DL trace."""
     if s is None or s.empty:
         return {
             "peak": float("nan"),
@@ -1251,7 +1252,7 @@ def write_site_list(book, styles, period_txt, charts: list[dict]) -> None:
         f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}, "
         "matched on the first 7 characters of the ERBS. "
         "OSS KPI columns stay blank until the OSS rollup is run. "
-        "There is no Avg peak line. touch levelbelow5% is Peak × 95%.",
+        "There is no Avg peak line. Below5%Peak is Peak × 95%.",
         styles["note"],
     )
     header_row = 3

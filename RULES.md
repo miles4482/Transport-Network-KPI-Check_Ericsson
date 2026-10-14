@@ -25,9 +25,9 @@ v2: read **only** `Total Capcity,Mbps` as the choke trace and show no other coun
 Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Usage (Mbps)`.
 
 - **Peak** = the highest hourly value of the window (the red Peak line on each chart).
-- **touch levelbelow5%** = Peak × 95%. An hour **touches** the Peak when its value is within 5% below the Peak (at or above touch levelbelow5%, the orange line). It is not an average.
+- **Below5%Peak** = Peak × 95%. An hour **touches** when Max DL is at or above Below5%Peak (within 5% below the Peak, the orange line). Below5%Peak is one number, 5% under that site's own highest hour. It is not an average of the hours. v3–v9 called this line touch levelbelow5%.
 - **Touch ratio** = touch hours ÷ total hours with data for that site.
-- Severity from the touch ratio: **Severe ≥ 70%**, **High ≥ 50%**, **Medium ≥ 40%**, **Low ≥ 20%**. Under 20% is not listed.
+- Severity from the touch ratio (v10): **Severe ≥ 60%**, **High 50% to under 60%**, **Medium 40% to under 50%**, **Low 20% to under 40%**. Under 20% is not listed. v3–v9 used Severe ≥ 70% and High 50% to under 70%.
 - Guards kept from section 4: at least 24 hourly samples and Peak ≥ 20 Mbit/s.
 - Busy-hour touch (08:00–22:00) and Where touched (Busy + off-peak / Busy hours / Off-peak) are shown as information; they do not change the grade.
 - Sort: severity, then touch ratio descending, then site name.
@@ -44,7 +44,7 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 
 v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
 
-**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, touch levelbelow5%, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. Every issue chart has the same five lines: Max DL Capacity Usage, Peak, Below5%Peak, the license, and 85% of the license. There is no Avg peak line. Sheet **1. Site List** lists the same sites. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
 
 ### v9 Site List identity and GeoPlot
 
