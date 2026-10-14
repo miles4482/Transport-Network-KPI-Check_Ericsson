@@ -39,9 +39,14 @@ Source: `DL_License_File.xlsx`, sheet `dlbbcapacity_dhk`. One row per node: `Nod
 | Version | Hour counts when usage / license | Site listed when | Sheet order |
 |---|---|---|---|
 | v4 | ≥ 90% | those hours ≥ 40% | Dashboard_License last |
-| v5 | ≥ **80%** | those hours ≥ **30%** | Dashboard, then Dashboard_License, then the hourly charts |
+| v5 | ≥ 80% | those hours ≥ 30% | Dashboard, then Dashboard_License, then the hourly charts |
+| v6 | ≥ **85%** | those hours ≥ **40%** | License section is on Dashboard. Charts cover both lists |
 
-v5 sheet **2. HourlyChartOfIssueSites** is the Dashboard_License list. Each chart draws Max DL Capacity Usage, the license (`dlBbCapacityNet`), and the 80% line. The site name on Dashboard_License jumps to that chart. `3. Hourly KPI` holds the same sites. A license of 0 or below, or an ERBS with no license row, is not scored. Sort: share of hours descending, then site name.
+v6 puts the license list on **Dashboard**, under the Peak-touch section. There is no separate Dashboard_License sheet.
+
+**2. HourlyChartOfIssueSites** has one chart for every site on either list. A site on both lists is drawn once. Peak-touch sites keep their order; license-only sites follow. The chart draws the lines for the list the site is on: Peak and Touch level, and/or the license and the 85% line. Both tables link the site name to that chart. `3. Hourly KPI` holds the same sites.
+
+A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.
 

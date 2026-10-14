@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v5.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v6.xlsx"
 LICENSE_FILE = "DL_License_File.xlsx"
 LICENSE_SHEET = "Dashboard_License"
 LICENSE_NODE_COL = "NodeId"
@@ -50,8 +50,8 @@ LICENSE_CAP_COL = "dlBbCapacityNet"
 # An hour counts when Max DL Capacity Usage / dlBbCapacityNet is at or above
 # this share. A site is listed when such hours are at least LICENSE_HOURS_PCT
 # of its hours.
-LICENSE_USE = 0.80
-LICENSE_HOURS_PCT = 30.0
+LICENSE_USE = 0.85
+LICENSE_HOURS_PCT = 40.0
 TRACE_COL = eric.ERIC_DL_COL
 TRACE_LABEL = "Max DL Capacity Usage"
 TOUCH_BAND = 0.05
@@ -183,11 +183,41 @@ def _page(ws, title: str, *, fit_width: bool = True) -> None:
     ws.set_footer(f"&L&8Touch = {TRACE_LABEL} within 5% below the Peak&R&8Page &P of &N")
 
 
-def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, records, *, link_charts: bool = True) -> None:
+def issue_charts(touch_records: list[dict], license_records: list[dict]) -> list[dict]:
+    """One chart per site listed by the Peak-touch rule or the license rule.
+
+    Peak-touch sites keep their order. License-only sites follow, highest
+    share of hours first. A site on both lists is drawn once.
+    """
+    license_by = {rec["site"]: rec for rec in license_records}
+    charts: list[dict] = []
+    seen: set[str] = set()
+    for rec in touch_records:
+        charts.append({"site": rec["site"], "touch": rec, "license": license_by.get(rec["site"])})
+        seen.add(rec["site"])
+    for rec in license_records:
+        if rec["site"] not in seen:
+            charts.append({"site": rec["site"], "touch": None, "license": rec})
+    return charts
+
+
+def write_dashboard(
+    book,
+    styles,
+    source_name,
+    period_txt,
+    n_sites,
+    n_scored,
+    records,
+    *,
+    link_charts: bool = True,
+    chart_index: dict[str, int] | None = None,
+    license_summary: dict | None = None,
+) -> None:
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
     ws.set_tab_color("#C65911")
-    for i, w in enumerate([16, 16, 16, 18, 18, 14, 14, 16, 18, 16]):
+    for i, w in enumerate([8, 16, 18, 16, 16, 16, 20, 18, 18, 18]):
         ws.set_column(i, i, w)
     tf = eric._tile_formats(book)
 
@@ -309,12 +339,13 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, re
             cfmt = styles["center_z"] if zebra else styles["center"]
             pfmt = styles["pct_z"] if zebra else styles["pct"]
             link = styles["link_z"] if zebra else styles["link"]
-            ws.write_number(row, 0, i + 1, ifmt)
+            chart_i = (chart_index or {}).get(rec["site"], i)
+            ws.write_number(row, 0, chart_i + 1, ifmt)
             if link_charts:
                 ws.write_url(
                     row,
                     1,
-                    f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}",
+                    f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
                     link,
                     string=rec["site"],
                 )
@@ -330,6 +361,9 @@ def write_dashboard(book, styles, source_name, period_txt, n_sites, n_scored, re
             ws.write_string(row, 9, rec["cap_when"], cfmt)
             row += 1
         row += 1
+    if license_summary is not None:
+        _write_license_on_dashboard(book, ws, styles, row + 1, license_summary, chart_index or {})
+    ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
     ws.set_zoom(110)
 
 
@@ -598,6 +632,109 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
         "bad_license": int(df.loc[df["lic"].notna() & (df["lic"] <= 0), "site"].nunique()),
         "scored": int(df.loc[scored, "site"].nunique()),
     }
+
+
+def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart_index: dict[str, int]) -> None:
+    """License list on the Dashboard sheet. Site names jump to the shared charts."""
+    records = summary["records"]
+    use_pct = f"{LICENSE_USE * 100:.0f}"
+    group = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 14,
+            "bold": True,
+            "font_color": fcc.NAVY,
+            "valign": "vcenter",
+        }
+    )
+    ws.set_row(row, 22)
+    ws.merge_range(row, 0, row, 9, "License usage", group)
+    row += 1
+    ws.set_row(row, 48)
+    ws.merge_range(
+        row,
+        0,
+        row,
+        9,
+        f"dlBbCapacityNet is the DL capacity license installed on the node "
+        f"({LICENSE_NODE_COL} = ERBS). An hour counts when {TRACE_COL} / dlBbCapacityNet "
+        f"≥ {use_pct}%. A site is listed when those hours are at least "
+        f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
+        f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
+        f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored.",
+        styles["note"],
+    )
+    row += 1
+    eric._write_tiles(
+        ws,
+        row,
+        [
+            (0, "ERBS in the FEG file", summary["feg_sites"], False),
+            (2, "Matched to a license", summary["matched"], False),
+            (4, "License scored (> 0)", summary["scored"], False),
+            (
+                6,
+                f"Listed (≥{LICENSE_HOURS_PCT:.0f}% of hours at ≥{use_pct}%)",
+                len(records),
+                True,
+            ),
+        ],
+        eric._tile_formats(book),
+    )
+    row += 4
+    headers = [
+        "No.",
+        "ERBS",
+        "License (Mbps)",
+        f"Hours ≥{use_pct}%",
+        "Total hours",
+        "Share of hours (%)",
+        "Peak Max DL (Mbps)",
+        "Peak / license (%)",
+        "Median usage (%)",
+        f"Where ≥{use_pct}%",
+    ]
+    ws.set_row(row, 22)
+    ws.merge_range(
+        row,
+        0,
+        row,
+        9,
+        f"Sites at ≥{use_pct}% of license for ≥{LICENSE_HOURS_PCT:.0f}% of hours"
+        f"    ·    {len(records)}",
+        styles["section"],
+    )
+    row += 1
+    ws.set_row(row, 32)
+    for col, text in enumerate(headers):
+        ws.write(row, col, text, styles["header"])
+    row += 1
+    for n, rec in enumerate(records):
+        zebra = n % 2 == 1
+        chart_i = chart_index[rec["site"]]
+        ws.set_row(row, 18)
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        ifmt = styles["int_z"] if zebra else styles["int"]
+        cfmt = styles["center_z"] if zebra else styles["center"]
+        pfmt = styles["pct_z"] if zebra else styles["pct"]
+        link = styles["link_z"] if zebra else styles["link"]
+        ws.write_number(row, 0, chart_i + 1, ifmt)
+        ws.write_url(
+            row,
+            1,
+            f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+            link,
+            string=rec["site"],
+        )
+        ws.write_number(row, 2, rec["license"], nfmt)
+        ws.write_number(row, 3, rec["hours_on"], ifmt)
+        ws.write_number(row, 4, rec["hours_n"], ifmt)
+        ws.write_number(row, 5, rec["share"], pfmt)
+        ws.write_number(row, 6, rec["peak"], nfmt)
+        ws.write_number(row, 7, rec["peak_ratio"], pfmt)
+        ws.write_number(row, 8, rec["median_ratio"], pfmt)
+        ws.write_string(row, 9, rec["cap_when"], cfmt)
+        row += 1
 
 
 def write_license_dashboard(book, styles, source_name, period_txt, summary: dict) -> None:
@@ -910,6 +1047,253 @@ def write_license_hourly(book, styles, summary: dict) -> None:
     ws.set_zoom(110)
 
 
+def write_issue_snapshots(book, styles, work, charts: list[dict], chart_start, chart_end) -> None:
+    """One chart per issue site from either list. Lines match why the site is listed."""
+    ws = book.add_worksheet(fcc.SNAP_SHEET)
+    _page(ws, "Hourly chart of issue sites", fit_width=False)
+    ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
+    ws.set_zoom(100)
+    ws.set_print_scale(100)
+    ws.set_tab_color(fcc.BLUE)
+    data = book.add_worksheet("_ChartData")
+    data.hide()
+    for col, width in enumerate([18, 16, 18, 16, 18, 16, 18, 16]):
+        ws.set_column(col, col, width)
+    block = fcc.BLOCK_ROWS
+    cat_fmt = book.add_format({"font_name": "Calibri", "font_size": 8, "align": "center"})
+    chart_days = list(pd.date_range(chart_start, chart_end, freq="D"))
+    by_site = {site: g for site, g in work.groupby("eNodeB Name", sort=False)}
+    use_pct = LICENSE_USE * 100
+    cols = 7
+
+    print(f"Writing {len(charts)} issue charts...")
+    for i, item in enumerate(charts):
+        if i and i % 100 == 0:
+            print(f"  charts {i}/{len(charts)}", flush=True)
+        top = i * block
+        site = item["site"]
+        touch = item["touch"]
+        lic = item["license"]
+        s = by_site.get(site)
+        if s is None:
+            s = work.iloc[0:0]
+        else:
+            s = s[(s["Date"] >= chart_start) & (s["Date"] <= chart_end)].sort_values("ts")
+        c0 = (i % CHART_DATA_PER_ROW) * cols
+        r0 = (i // CHART_DATA_PER_ROW) * CHART_DATA_BLOCK_ROWS
+        for offset, name in enumerate(("Date", "Time", "Rx", "Peak", "Touch", "License", "Threshold")):
+            data.write(r0, c0 + offset, name)
+        rx_by_key = {
+            (d.normalize(), int(h)): float(v) for d, h, v in zip(s["Date"], s["Hour"], s["Rx"])
+        }
+        peak = float(touch["peak"]) if touch else float("nan")
+        touch_level = float(touch["level"]) if touch else float("nan")
+        license_mbps = float(lic["license"]) if lic else float("nan")
+        threshold = license_mbps * LICENSE_USE if np.isfinite(license_mbps) else float("nan")
+        dates: list[str] = []
+        times: list[str] = []
+        plotted = [v for v in (peak, touch_level, license_mbps, threshold) if np.isfinite(v)]
+        r = r0
+        for day in chart_days:
+            date_label = f"{int(day.day)}/{fcc.MONTHS[int(day.month) - 1]}"
+            for hour in range(24):
+                r += 1
+                dates.append(date_label if hour == 0 else "")
+                times.append(f"{hour:02d}:00")
+                if hour == 0:
+                    data.write_string(r, c0, date_label, cat_fmt)
+                else:
+                    data.write_blank(r, c0, None)
+                data.write_string(r, c0 + 1, f"{hour:02d}:00", cat_fmt)
+                value = rx_by_key.get((day.normalize(), hour))
+                if value is None or not np.isfinite(value):
+                    data.write_blank(r, c0 + 2, None)
+                else:
+                    data.write_number(r, c0 + 2, value)
+                    plotted.append(value)
+                if np.isfinite(peak):
+                    data.write_number(r, c0 + 3, peak)
+                if np.isfinite(touch_level):
+                    data.write_number(r, c0 + 4, touch_level)
+                if np.isfinite(license_mbps):
+                    data.write_number(r, c0 + 5, license_mbps)
+                if np.isfinite(threshold):
+                    data.write_number(r, c0 + 6, threshold)
+        n = r
+        first = r0 + 1
+
+        tags = []
+        if touch:
+            tags.append(f"Peak touch {touch['severity']}")
+        if lic:
+            tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
+        ws.set_row(top, 26)
+        ws.merge_range(top, 0, top, 7, f"{i + 1:02d}    {site}    ·    {'    ·    '.join(tags)}", styles["banner"])
+        if touch and lic:
+            labels = [
+                (0, "Peak (Mbit/s)", f"{peak:.2f}"),
+                (2, "Touch ratio", f"{touch['hours_on']} / {touch['hours_n']}  ({touch['hours_pct']:.1f}%)"),
+                (4, "License (Mbps)", f"{license_mbps:.2f}"),
+                (6, f"Hours ≥{use_pct:.0f}% of license", f"{lic['hours_on']} / {lic['hours_n']}  ({lic['share']:.1f}%)"),
+            ]
+        elif touch:
+            labels = [
+                (0, "Peak (Mbit/s)", f"{peak:.2f}"),
+                (2, f"Touch level ({100 - TOUCH_BAND * 100:.0f}% of Peak)", f"{touch_level:.2f}"),
+                (4, "Touch hours (all 24h)", f"{touch['hours_on']} / {touch['hours_n']}  ({touch['hours_pct']:.1f}%)"),
+                (6, "Busy-hour touch (08–22)", f"{touch['busy_on']} / {touch['busy_n']}  ({touch['busy_pct']:.1f}%)"),
+            ]
+        else:
+            labels = [
+                (0, "License dlBbCapacityNet (Mbps)", f"{license_mbps:.2f}"),
+                (2, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}"),
+                (4, f"Hours ≥{use_pct:.0f}%", f"{lic['hours_on']} / {lic['hours_n']}  ({lic['share']:.1f}%)"),
+                (6, "Peak Max DL (Mbps)", f"{lic['peak']:.2f}  ({lic['peak_ratio']:.1f}%)"),
+            ]
+        ws.set_row(top + 1, 16)
+        ws.set_row(top + 2, 20)
+        for col, label, _value in labels:
+            ws.merge_range(top + 1, col, top + 1, col + 1, label, styles["kpi_label"])
+        for col, _label, value in labels:
+            ws.merge_range(top + 2, col, top + 2, col + 1, value, styles["kpi_value"])
+        ws.set_row(top + 3, 8)
+
+        chart = book.add_chart({"type": "line"})
+        chart.show_blanks_as("gap")
+        chart.set_title({"name": site, "name_font": {"name": "Calibri", "size": 16, "color": "#595959"}})
+        series = [(f"{TRACE_LABEL} (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25})]
+        if touch:
+            series.append((f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}))
+            series.append((f"Touch level ({touch_level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}))
+        if lic:
+            series.append((f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}))
+            series.append((f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}))
+        for name, offset, line in series:
+            chart.add_series(
+                {
+                    "name": name,
+                    "categories": ["_ChartData", first, c0, n, c0 + 1],
+                    "categories_data": [dates, times],
+                    "values": ["_ChartData", first, c0 + offset, n, c0 + offset],
+                    "line": line,
+                    "marker": {"type": "none"},
+                }
+            )
+        chart.set_x_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 8, "color": "#595959", "rotation": -90},
+                "label_position": "nextTo",
+                "label_align": "center",
+                "position_axis": "on_tick",
+                "major_tick_mark": "none",
+                "minor_tick_mark": "none",
+                "major_gridlines": {"visible": False},
+                "minor_gridlines": {"visible": False},
+                "line": {"color": "#B0B0B0"},
+            }
+        )
+        y_max, y_unit = fcc._chart_y_scale(plotted or [50.0])
+        chart.set_y_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 9, "color": "#595959"},
+                "min": 0,
+                "max": y_max,
+                "major_unit": y_unit,
+                "major_gridlines": {"visible": True, "line": {"color": "#D9D9D9"}},
+                "line": {"none": True},
+            }
+        )
+        chart.set_legend({"position": "top", "font": {"name": "Calibri", "size": 9}})
+        chart.set_chartarea({"border": {"color": "#D0D0D0"}, "fill": {"color": "white"}})
+        chart.set_plotarea(
+            {
+                "border": {"none": True},
+                "fill": {"color": "white"},
+                "layout": {"x": 0.06, "y": 0.16, "width": 0.91, "height": 0.58},
+            }
+        )
+        chart.set_size({"width": 1200, "height": 410})
+        ws.insert_chart(top + 4, 0, chart, {"x_offset": 6, "y_offset": 6, "object_position": 2})
+        for rr in range(top + 4, top + block):
+            ws.set_row(rr, 16)
+    if charts:
+        ws.set_h_pagebreaks([i * block for i in range(1, len(charts))])
+
+
+def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
+    """Hourly rows for every charted site, in chart order."""
+    ws = book.add_worksheet("3. Hourly KPI")
+    _page(ws, "Hourly KPI — issue sites")
+    ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
+    ws.set_tab_color("#5B9BD5")
+    use_pct = f"{LICENSE_USE * 100:.0f}"
+    headers = [
+        "Date",
+        "Time",
+        eric.ERIC_SITE_COL,
+        TRACE_COL,
+        "Touches Peak",
+        "Peak (Mbit/s)",
+        "Touch level (Mbit/s)",
+        "dlBbCapacityNet",
+        "Usage / license (%)",
+        f"≥{use_pct}% of license",
+    ]
+    for i, w in enumerate([14, 10, 16, 28, 14, 16, 18, 18, 20, 18]):
+        ws.set_column(i, i, w)
+    ws.set_row(0, 30)
+    for col, text in enumerate(headers):
+        ws.write(0, col, text, styles["header"])
+
+    order = {item["site"]: i for i, item in enumerate(charts)}
+    license_of = {item["site"]: item["license"]["license"] for item in charts if item["license"]}
+    hourly = work.loc[work["eNodeB Name"].isin(order)].copy()
+    hourly["_order"] = hourly["eNodeB Name"].map(order)
+    hourly = hourly.sort_values(["_order", "ts"])
+    parity = {item["site"]: i % 2 for i, item in enumerate(charts)}
+    excel_row = 0
+    for site, date, hour, rx, on_cap, peak, level in zip(
+        hourly["eNodeB Name"],
+        hourly["Date"],
+        hourly["Hour"],
+        hourly["Rx"],
+        hourly["OnCap"],
+        hourly["Peak"],
+        hourly["TouchLevel"],
+    ):
+        excel_row += 1
+        z = "_z" if parity[site] else ""
+        ws.write_datetime(excel_row, 0, date.to_pydatetime(), styles["date" + z])
+        ws.write_datetime(excel_row, 1, time(int(hour), 0), styles["time" + z])
+        ws.write_string(excel_row, 2, site, styles["text" + z])
+        if rx is None or not np.isfinite(rx):
+            ws.write_blank(excel_row, 3, None, styles["num" + z])
+        else:
+            ws.write_number(excel_row, 3, float(rx), styles["num" + z])
+        if peak is None or not np.isfinite(peak):
+            ws.write_blank(excel_row, 4, None, styles["center" + z])
+            ws.write_blank(excel_row, 5, None, styles["num" + z])
+            ws.write_blank(excel_row, 6, None, styles["num" + z])
+        else:
+            ws.write_string(excel_row, 4, "Yes" if bool(on_cap) else "No", styles["center" + z])
+            ws.write_number(excel_row, 5, float(peak), styles["num" + z])
+            ws.write_number(excel_row, 6, float(level), styles["num" + z])
+        lic = license_of.get(site)
+        if lic is None or not np.isfinite(rx):
+            ws.write_blank(excel_row, 7, None, styles["num" + z])
+            ws.write_blank(excel_row, 8, None, styles["pct" + z])
+            ws.write_blank(excel_row, 9, None, styles["center" + z])
+        else:
+            ws.write_number(excel_row, 7, float(lic), styles["num" + z])
+            ws.write_number(excel_row, 8, 100.0 * float(rx) / float(lic), styles["pct" + z])
+            ws.write_string(
+                excel_row, 9, "Yes" if float(rx) >= LICENSE_USE * float(lic) else "No", styles["center" + z]
+            )
+    ws.autofilter(0, 0, max(excel_row, 1), len(headers) - 1)
+    ws.repeat_rows(0, 0)
+    ws.set_zoom(110)
+
+
 def write_workbook(
     path: Path,
     source_name: str,
@@ -928,18 +1312,21 @@ def write_workbook(
     period_txt = f"{period_start.strftime('%d %b %Y')} – {period_end.strftime('%d %b %Y')}"
     chart_end = period_end.normalize()
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
-    # Dashboard_License sits directly after Dashboard. The hourly charts and
-    # the hourly KPI follow the license list, and each license site name
-    # jumps to its chart.
+    license_records = license_summary["records"] if license_summary else []
+    charts = issue_charts(records, license_records)
+    chart_index = {item["site"]: i for i, item in enumerate(charts)}
+    # License results sit on the Dashboard, under the Peak-touch section.
+    # One chart per site from either list, and both tables link to it.
     write_dashboard(
         book, styles, source_name, period_txt, n_sites, n_scored, records,
-        link_charts=license_summary is None,
+        link_charts=True,
+        chart_index=chart_index,
+        license_summary=license_summary,
     )
     if license_summary is not None:
-        write_license_dashboard(book, styles, source_name, period_txt, license_summary)
-        write_license_snapshots(book, styles, license_summary, chart_start, chart_end)
+        write_issue_snapshots(book, styles, work, charts, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
-        write_license_hourly(book, styles, license_summary)
+        write_issue_hourly(book, styles, work, charts)
     else:
         write_snapshots(book, styles, work, records, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
@@ -981,7 +1368,7 @@ def main() -> None:
             f"(≥{LICENSE_USE * 100:.0f}% of license for ≥{LICENSE_HOURS_PCT:.0f}% of hours)"
         )
     else:
-        print(f"License file not found ({license_path}); {LICENSE_SHEET} not written")
+        print(f"License file not found ({license_path}); license section not written")
     output = Path(args.output)
     write_workbook(output, source.name, work, records, license_summary)
 
