@@ -21,12 +21,13 @@ COLOR_ISSUE_4G5G = "#FF6D00"
 KIND_ISSUE_4G = "Issue 4G"
 KIND_ISSUE_4G5G = "Issue 4G+5G"
 ISSUE_KINDS = (KIND_ISSUE_4G, KIND_ISSUE_4G5G)
-SEV_ORDER = ("Severe", "High", "Moderate", "Low")
+SEV_ORDER = ("Severe", "High", "Moderate", "Low", "Decision")
 COLOR_SEV = {
     "Severe": "#FF1A1A",  # bright red — highest visibility
     "High": "#A31B1B",  # same family, less bright
     "Moderate": "#C47A12",  # muted amber — next step down
     "Low": "#1F7A3A",  # calm green — lowest emphasis
+    "Decision": "#2471A3",  # blue — Tx gap 10% to under 15%
 }
 TILE_SIZE = 256
 TILE_CACHE = Path("/tmp/google_sat_tiles")
@@ -284,7 +285,7 @@ def _legend_strip_severity(width: int, counts: dict[str, int] | None = None) -> 
     group_font = _font(20)
     draw.text((16, 48), "Severity", fill="#90A4AE", font=group_font)
     overlay = Image.new("RGBA", strip.size, (0, 0, 0, 0))
-    rows = (SEV_ORDER[:2], SEV_ORDER[2:])
+    rows = (SEV_ORDER[:3], SEV_ORDER[3:])
     for y, names in zip((18, 78), rows):
         x = 168
         for name in names:
@@ -775,7 +776,7 @@ def render_html(rows: list[dict], zoom_specs: list[dict], dest: Path, title: str
 </head>
 <body>
   <h1>{title}</h1>
-      <p class="sub">Google satellite · National + severity maps, then top thanas and issue clusters each with a severity map beside them · Coverage: cyan 4G / yellow 5G · Issue: red 4G / orange 4G+5G · Severity map: bright red Severe / deep red High / muted amber Moderate / calm green Low</p>
+      <p class="sub">Google satellite · National + severity maps, then top thanas and issue clusters each with a severity map beside them · Coverage: cyan 4G / yellow 5G · Issue: red 4G / orange 4G+5G · Severity map: bright red Severe / deep red High / muted amber Moderate / calm green Low / blue Decision</p>
   <nav id="nav"></nav>
   <div id="maps"></div>
   <script>
@@ -841,7 +842,8 @@ def render_html(rows: list[dict], zoom_specs: list[dict], dest: Path, title: str
             + "<div><span class='swatch' style='background:" + col.Severe + ";width:13px;height:13px'></span>Severe (" + (c.Severe || 0).toLocaleString() + ")</div>"
             + "<div><span class='swatch' style='background:" + col.High + ";width:13px;height:13px'></span>High (" + (c.High || 0).toLocaleString() + ")</div>"
             + "<div><span class='swatch' style='background:" + col.Moderate + ";width:13px;height:13px'></span>Moderate (" + (c.Moderate || 0).toLocaleString() + ")</div>"
-            + "<div><span class='swatch' style='background:" + col.Low + ";width:13px;height:13px'></span>Low (" + (c.Low || 0).toLocaleString() + ")</div>";
+            + "<div><span class='swatch' style='background:" + col.Low + ";width:13px;height:13px'></span>Low (" + (c.Low || 0).toLocaleString() + ")</div>"
+            + "<div><span class='swatch' style='background:" + col.Decision + ";width:13px;height:13px'></span>Decision (" + (c.Decision || 0).toLocaleString() + ")</div>";
         }} else {{
           const c = kindCounts(points);
           div.innerHTML = "<div style='color:#90A4AE;margin-bottom:4px'>Coverage</div>"

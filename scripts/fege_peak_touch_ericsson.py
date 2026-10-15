@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v17.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v18.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -59,13 +59,13 @@ LICENSE_CAP_COL = "dlBbCapacityNet"
 # this share. A site is listed when such hours are at least LICENSE_HOURS_PCT
 # of its hours.
 LICENSE_USE = 0.85
-LICENSE_HOURS_PCT = 40.0
-# Category of the listed license sites, by share of hours at ≥ LICENSE_USE.
-# Under LICENSE_HOURS_PCT is not listed, so there is no band below 40%.
+LICENSE_HOURS_PCT = 20.0
+# Share of hours at ≥ LICENSE_USE. Under LICENSE_HOURS_PCT is not listed.
 LICENSE_CATEGORIES = (
-    ("≥ 70%", 70.0, "severe", "At least 70% of the hours"),
-    ("50% to under 70%", 50.0, "high", "From 50% up to 70% of the hours"),
-    ("40% to under 50%", 40.0, "moderate", "From 40% up to 50% of the hours"),
+    ("≥ 50%", 50.0, "severe", "At least 50% of the hours at ≥85% of license"),
+    ("40% to under 50%", 40.0, "high", "From 40% up to 50% of the hours at ≥85% of license"),
+    ("30% to under 40%", 30.0, "moderate", "From 30% up to 40% of the hours at ≥85% of license"),
+    ("20% to under 30%", 20.0, "low", "From 20% up to 30% of the hours at ≥85% of license"),
 )
 TRACE_COL = eric.ERIC_DL_COL
 TRACE_LABEL = "Max DL Capacity Usage"
@@ -77,10 +77,20 @@ SEV_SEVERE = "Severe"
 SEV_HIGH = "High"
 SEV_MEDIUM = "Medium"
 SEV_LOW = "Low"
-SEV_DOUBLE = "Tx Issues Suspected"
-# Gap = (License - Peak) / License. A listed site at or above this gap is Tx Issues Suspected.
-GAP_MIN = 0.15
-DOUBLE_COMMENT = "Tx Issues Suspected"
+SEV_DECISION = "Decision"
+CAT_PEAK = "Peak Touch"
+CAT_LICENSE = "License usage"
+CAT_TX = "Tx Flat/Chocked"
+# Gap = (License - Peak) / License. A listed site at or above 10% is Tx Flat/Chocked.
+GAP_MIN = 0.10
+TX_COMMENT = "Tx Issues Suspected"
+TX_BANDS = (
+    (SEV_SEVERE, 40.0, "Gap ≥ 40%"),
+    (SEV_HIGH, 30.0, "Gap 30% to under 40%"),
+    (SEV_MEDIUM, 20.0, "Gap 20% to under 30%"),
+    (SEV_LOW, 15.0, "Gap 15% to under 20%"),
+    (SEV_DECISION, 10.0, "Gap 10% to under 15%"),
+)
 SEVERITY_BANDS = (
     (SEV_SEVERE, 40.0),
     (SEV_HIGH, 30.0),
@@ -88,25 +98,27 @@ SEVERITY_BANDS = (
     (SEV_LOW, 10.0),
 )
 SEVERITY_ORDER = {name: i for i, (name, _pct) in enumerate(SEVERITY_BANDS)}
-SEVERITY_ORDER[SEV_DOUBLE] = len(SEVERITY_ORDER)
+SEVERITY_ORDER[SEV_DECISION] = len(SEVERITY_ORDER)
 SEVERITY_STYLE = {
     SEV_SEVERE: "severe",
     SEV_HIGH: "high",
     SEV_MEDIUM: "moderate",
     SEV_LOW: "low",
-    SEV_DOUBLE: "double",
+    SEV_DECISION: "decision",
 }
-SEVERITY_NOTES = (
-    (SEV_SEVERE, "Severe: peak ratio at least 40% (hours at or above Below5%Peak)."),
-    (SEV_HIGH, "High: peak ratio 30% to under 40%."),
-    (SEV_MEDIUM, "Medium: peak ratio 20% to under 30%."),
-    (SEV_LOW, "Low: peak ratio 10% to under 20%. Under 10% is not listed."),
-    (
-        SEV_DOUBLE,
-        "Tx Issues Suspected: the site is listed, and the license is at least 15% above the Peak. "
-        "Gap = (License − Peak) / License. The peak-touch grade is replaced by Tx Issues Suspected.",
-    ),
-)
+LICENSE_TYPE = {"severe": SEV_SEVERE, "high": SEV_HIGH, "moderate": SEV_MEDIUM, "low": SEV_LOW}
+PEAK_RULES = {
+    SEV_SEVERE: "Peak ratio ≥ 40%",
+    SEV_HIGH: "Peak ratio 30% to under 40%",
+    SEV_MEDIUM: "Peak ratio 20% to under 30%",
+    SEV_LOW: "Peak ratio 10% to under 20%",
+}
+LICENSE_RULES = {
+    SEV_SEVERE: "≥ 50% of hours at ≥85% of license",
+    SEV_HIGH: "40% to under 50% of hours at ≥85% of license",
+    SEV_MEDIUM: "30% to under 40% of hours at ≥85% of license",
+    SEV_LOW: "20% to under 30% of hours at ≥85% of license",
+}
 CHART_DATA_PER_ROW = eric.CHART_DATA_PER_ROW
 CHART_DATA_BLOCK_ROWS = eric.CHART_DATA_BLOCK_ROWS
 
@@ -126,8 +138,19 @@ def severity(touch_pct: float) -> str | None:
     return None
 
 
-def apply_double_check(records: list[dict], stats_by_site: dict) -> None:
-    """Relabel a listed site Tx Issues Suspected when the license sits ≥15% above its Peak."""
+def tx_band(gap: float) -> str | None:
+    """Gap is (License − Peak) / License. None when the gap is under 10%."""
+    if not np.isfinite(gap):
+        return None
+    pct = gap * 100.0
+    for name, floor, _rule in TX_BANDS:
+        if pct >= floor:
+            return name
+    return None
+
+
+def apply_tx(records: list[dict], stats_by_site: dict) -> None:
+    """Move a listed site into Tx Flat/Chocked when the license is ≥10% above its Peak."""
     for rec in records:
         stat = stats_by_site.get(rec["site"])
         lic = float(stat["license"]) if stat else float("nan")
@@ -136,10 +159,54 @@ def apply_double_check(records: list[dict], stats_by_site: dict) -> None:
         rec["license_mbps"] = lic
         rec["gap"] = gap
         rec["touch_severity"] = rec["severity"]
-        rec["double_check"] = bool(np.isfinite(gap) and gap >= GAP_MIN)
-        if rec["double_check"]:
-            rec["severity"] = SEV_DOUBLE
-    records.sort(key=lambda r: (SEVERITY_ORDER[r["severity"]], -r["hours_pct"], r["site"]))
+        band = tx_band(gap)
+        rec["tx_severity"] = band
+        rec["double_check"] = band is not None
+        if band:
+            rec["category"] = CAT_TX
+            rec["severity"] = band
+        else:
+            rec["category"] = CAT_PEAK
+    records.sort(
+        key=lambda r: (
+            0 if r["category"] == CAT_PEAK else 1,
+            SEVERITY_ORDER[r["severity"]],
+            -r["hours_pct"],
+            r["site"],
+        )
+    )
+
+
+def license_type(share: float) -> str:
+    for _name, _floor, style, _rule in LICENSE_CATEGORIES:
+        if share >= _floor:
+            return LICENSE_TYPE[style]
+    return LICENSE_TYPE[LICENSE_CATEGORIES[-1][2]]
+
+
+def stamp_charts(charts: list[dict], records: list[dict]) -> None:
+    """One category and display severity per chart. License can sit on top of the other two."""
+    by_site = {rec["site"]: rec for rec in records}
+    for item in charts:
+        rec = by_site.get(item["site"])
+        lic = item.get("license")
+        item["license_listed"] = lic is not None
+        if rec is not None:
+            item["category"] = rec["category"]
+            item["display_severity"] = rec["severity"]
+        else:
+            item["category"] = CAT_LICENSE
+            item["display_severity"] = license_type(float(lic["share"])) if lic else SEV_LOW
+    cat_rank = {CAT_PEAK: 0, CAT_TX: 1, CAT_LICENSE: 2}
+    charts.sort(
+        key=lambda item: (
+            cat_rank[item["category"]],
+            SEVERITY_ORDER.get(item["display_severity"], 9),
+            -(float(item["touch"]["hours_pct"]) if item.get("touch") else 0.0),
+            -(float(item["license"]["share"]) if item.get("license") else 0.0),
+            item["site"],
+        )
+    )
 
 
 def analyse_touch(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
@@ -248,8 +315,9 @@ GEO_SEV = {
     SEV_HIGH: "High",
     SEV_MEDIUM: "Moderate",
     SEV_LOW: "Low",
+    SEV_DECISION: "Decision",
 }
-GEO_SEV_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3}
+GEO_SEV_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3, "Decision": 4}
 
 
 def load_physical() -> tuple[pd.DataFrame, dict[str, str], dict[str, str]]:
@@ -291,20 +359,17 @@ def geo_issue_records(charts: list[dict]) -> tuple[list[dict], int]:
     by_code: dict[str, dict] = {}
     for item in charts:
         code = item["site_code"]
-        touch = item["touch"]
-        grade = (touch.get("touch_severity") or touch["severity"]) if touch else None
-        sev = GEO_SEV.get(grade) if grade else None
+        sev = GEO_SEV.get(item.get("display_severity")) or "Low"
         cur = by_code.get(code)
         if cur is None:
             by_code[code] = {
                 "site": code,
-                "severity": sev or "Low",
-                "license_only": sev is None,
+                "severity": sev,
+                "license_only": item.get("category") == CAT_LICENSE,
             }
             continue
-        if sev is None:
-            continue
-        cur["license_only"] = False
+        if item.get("category") != CAT_LICENSE:
+            cur["license_only"] = False
         if GEO_SEV_RANK[sev] < GEO_SEV_RANK[cur["severity"]]:
             cur["severity"] = sev
     records = [{"site": row["site"], "severity": row["severity"]} for row in by_code.values()]
@@ -329,6 +394,130 @@ def issue_charts(touch_records: list[dict], license_records: list[dict]) -> list
         if rec["site"] not in seen:
             charts.append({"site": rec["site"], "touch": None, "license": rec})
     return charts
+
+
+def _blank_or_num(ws, row: int, col: int, value: int, num_fmt, blank_fmt) -> None:
+    if value:
+        ws.write_number(row, col, value, num_fmt)
+    else:
+        ws.write_blank(row, col, None, blank_fmt)
+
+
+def _write_category_matrix(book, ws, styles, row: int, records: list[dict], license_records: list[dict], tf) -> int:
+    """Dashboard category table: Peak Touch, License usage, Tx Flat/Chocked."""
+    comment_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "bold": True,
+            "font_color": "#C00000",
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#D9D9D9",
+            "text_wrap": True,
+        }
+    )
+    rule_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 10,
+            "align": "left",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#D9D9D9",
+            "text_wrap": True,
+        }
+    )
+    cat_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "bold": True,
+            "font_color": fcc.NAVY,
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#DEEBF7",
+            "border": 1,
+            "border_color": "#D9D9D9",
+            "text_wrap": True,
+        }
+    )
+    blocks = []
+    peak_rows = []
+    for name, _floor in SEVERITY_BANDS:
+        chosen = [rec for rec in records if rec["category"] == CAT_PEAK and rec["severity"] == name]
+        peak_rows.append((name, chosen, "", PEAK_RULES[name], rec_when(chosen)))
+    blocks.append((CAT_PEAK, peak_rows))
+    lic_rows = []
+    for sev in (SEV_SEVERE, SEV_HIGH, SEV_MEDIUM, SEV_LOW):
+        chosen = [rec for rec in license_records if license_type(rec["share"]) == sev]
+        lic_rows.append((sev, chosen, "", LICENSE_RULES[sev], rec_when(chosen)))
+    blocks.append((CAT_LICENSE, lic_rows))
+    tx_rows = []
+    for name, _floor, rule in TX_BANDS:
+        chosen = [rec for rec in records if rec["category"] == CAT_TX and rec["severity"] == name]
+        tx_rows.append((name, chosen, TX_COMMENT, rule, rec_when(chosen)))
+    blocks.append((CAT_TX, tx_rows))
+
+    ws.set_row(row, 22)
+    ws.merge_range(row, 0, row, 7, "Category summary", tf["group"])
+    row += 1
+    ws.set_row(row, 30)
+    for col, text in enumerate(
+        ("Category", "Severity", *fcc.CAP_WHEN_COLS, "Total", "Comments", "Rule Details")
+    ):
+        ws.write(row, col, text, styles["header"])
+    row += 1
+    grand = {when: 0 for when in fcc.CAP_WHEN_COLS}
+    for label, block_rows in blocks:
+        start = row
+        for sev, _chosen, comment, rule, when_counts in block_rows:
+            ws.set_row(row, 22)
+            ws.write(row, 1, sev, styles[SEVERITY_STYLE[sev]])
+            total = 0
+            for offset, when in enumerate(fcc.CAP_WHEN_COLS):
+                value = when_counts.get(when, 0)
+                total += value
+                grand[when] += value
+                _blank_or_num(ws, row, 2 + offset, value, styles["int"], styles["center"])
+            ws.write_number(row, 5, total, styles["int"])
+            if comment:
+                ws.write(row, 6, comment, comment_fmt)
+            else:
+                ws.write_blank(row, 6, None, styles["center"])
+            ws.write(row, 7, rule, rule_fmt)
+            row += 1
+        if row - 1 == start:
+            ws.write(start, 0, label, cat_fmt)
+        else:
+            ws.merge_range(start, 0, row - 1, 0, label, cat_fmt)
+    ws.set_row(row, 18)
+    ws.merge_range(row, 0, row, 1, "Grand Total", tf["total_label"])
+    grand_n = sum(grand.values())
+    for offset, when in enumerate(fcc.CAP_WHEN_COLS):
+        ws.write_number(row, 2 + offset, grand[when], tf["total"])
+    ws.write_number(row, 5, grand_n, tf["total"])
+    ws.write_blank(row, 6, None, tf["total"])
+    ws.write(row, 7, "Distinct findings added across the three categories. A site in two categories is counted in each.", rule_fmt)
+    row += 1
+    ws.set_row(row, 32)
+    ws.merge_range(
+        row, 0, row, 7,
+        "Grand Total adds the rows above, so an ERBS in License usage and also in Peak Touch or "
+        "Tx Flat/Chocked is counted twice here. Sheet 1. Site List and the charts keep that ERBS once.",
+        styles["note"],
+    )
+    return row + 1
+
+
+def rec_when(chosen: list[dict]) -> dict[str, int]:
+    counts = {when: 0 for when in fcc.CAP_WHEN_COLS}
+    for rec in chosen:
+        when = rec.get("cap_when")
+        if when in counts:
+            counts[when] += 1
+    return counts
 
 
 def write_dashboard(
@@ -364,17 +553,19 @@ def write_dashboard(
         f"{eric.ZONE} transmission    ·    {period_txt}    ·    hourly    ·    {source_name}",
         styles["subtitle"],
     )
-    ws.set_row(2, 120 if oss_note else 80)
+    ws.set_row(2, 150 if oss_note else 100)
     method = (
         f"Method: only {TRACE_COL} is read. Peak = the highest hourly value in the window "
         f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
         f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
         f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
-        "Peak ratio = touch hours / hours with data. "
-        "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 10% to under 20%. "
-        "Under 10% is not listed. "
-        "Tx Issues Suspected: a listed site whose license is at least 15% above its Peak. "
-        "Gap = (License − Peak) / License. "
+        "Three categories. Peak Touch: peak ratio Severe ≥ 40%, High 30% to under 40%, "
+        "Medium 20% to under 30%, Low 10% to under 20%. Under 10% is not listed. "
+        "License usage: share of hours at ≥85% of license, Severe ≥ 50%, High 40% to under 50%, "
+        "Medium 30% to under 40%, Low 20% to under 30%. "
+        "Tx Flat/Chocked: a listed site whose Gap = (License − Peak) / License is at least 10%. "
+        "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 15% to under 20%, "
+        "Decision 10% to under 15%. Comment is Tx Issues Suspected. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
@@ -382,67 +573,22 @@ def write_dashboard(
         method = f"{method} {oss_note}"
     ws.merge_range("A3:L3", method, styles["note"])
 
+    license_records = (license_summary or {}).get("records") or []
+    n_peak = sum(1 for rec in records if rec["category"] == CAT_PEAK)
+    n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
     row = eric._write_tiles(
         ws,
         3,
         [
             (0, "Sites checked", n_sites, False),
-            (2, "Listed (peak ratio ≥ 10%)", len(records), True),
-            (4, "Severe (≥ 40%)", counts[SEV_SEVERE], True),
-            (6, "Tx Issues Suspected", counts[SEV_DOUBLE], True),
+            (2, CAT_PEAK, n_peak, False),
+            (4, CAT_TX, n_tx, True),
+            (6, CAT_LICENSE, len(license_records), True),
         ],
         tf,
     )
     row += 1
-
-    sevs = [name for name, _pct in SEVERITY_BANDS] + [SEV_DOUBLE]
-    matrix = {sev: {when: 0 for when in fcc.CAP_WHEN_COLS} for sev in sevs}
-    comment_fmt = book.add_format(
-        {
-            "font_name": "Calibri",
-            "font_size": 11,
-            "bold": True,
-            "font_color": "#C00000",
-            "align": "center",
-            "valign": "vcenter",
-            "border": 1,
-            "border_color": "#D9D9D9",
-        }
-    )
-    for rec in records:
-        if rec["cap_when"] in matrix[rec["severity"]]:
-            matrix[rec["severity"]][rec["cap_when"]] += 1
-    ws.set_row(row, 22)
-    ws.merge_range(row, 0, row, 11, "Touch Window Observation", tf["group"])
-    row += 1
-    ws.set_row(row, 28)
-    ws.write(row, 0, "Severity", styles["header"])
-    for offset, text in enumerate(fcc.CAP_WHEN_COLS):
-        ws.write(row, 1 + offset, text, styles["header"])
-    ws.write(row, 4, "Total", styles["header"])
-    ws.write(row, 5, "Comments", styles["header"])
-    row += 1
-    for sev in sevs:
-        ws.set_row(row, 18)
-        ws.write(row, 0, sev, styles[SEVERITY_STYLE[sev]])
-        for offset, when in enumerate(fcc.CAP_WHEN_COLS):
-            value = matrix[sev][when]
-            if value:
-                ws.write_number(row, 1 + offset, value, styles["int"])
-            else:
-                ws.write_blank(row, 1 + offset, None, styles["center"])
-        ws.write_number(row, 4, counts[sev], styles["int"])
-        if sev == SEV_DOUBLE:
-            ws.write(row, 5, DOUBLE_COMMENT, comment_fmt)
-        else:
-            ws.write_blank(row, 5, None, styles["center"])
-        row += 1
-    ws.set_row(row, 18)
-    ws.write(row, 0, "Grand Total", tf["total_label"])
-    for offset, when in enumerate(fcc.CAP_WHEN_COLS):
-        ws.write_number(row, 1 + offset, sum(matrix[sev][when] for sev in sevs), tf["total"])
-    ws.write_number(row, 4, len(records), tf["total"])
-    ws.write_blank(row, 5, None, tf["total"])
+    row = _write_category_matrix(book, ws, styles, row, records, license_records, tf)
     row += 2
 
     headers = [
@@ -460,8 +606,20 @@ def write_dashboard(
         "Gap (%)",
     ]
     indexed = list(enumerate(records))
-    for name, note in SEVERITY_NOTES:
-        group = [(i, rec) for i, rec in indexed if rec["severity"] == name]
+    sections: list[tuple[str, str, list]] = []
+    for name, _floor in SEVERITY_BANDS:
+        group = [
+            (i, rec) for i, rec in indexed
+            if rec["category"] == CAT_PEAK and rec["severity"] == name
+        ]
+        sections.append((f"{CAT_PEAK} · {name}", PEAK_RULES[name], group))
+    for name, _floor, rule in TX_BANDS:
+        group = [
+            (i, rec) for i, rec in indexed
+            if rec["category"] == CAT_TX and rec["severity"] == name
+        ]
+        sections.append((f"{CAT_TX} · {name}", f"{rule}. {TX_COMMENT}.", group))
+    for name, note, group in sections:
         if not group:
             continue
         ws.set_row(row, 22)
@@ -821,8 +979,8 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         f"({LICENSE_NODE_COL} = ERBS). An hour counts when {TRACE_COL} / dlBbCapacityNet "
         f"≥ {use_pct}%. A site is listed when those hours are at least "
         f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
-        f"License usage category is that share of hours: ≥ 70%, 50% to under 70%, "
-        f"or 40% to under 50%. "
+        f"License usage type is that share of hours: Severe ≥ 50%, High 40% to under 50%, "
+        f"Medium 30% to under 40%, Low 20% to under 30%. "
         f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
         f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored.",
         styles["note"],
@@ -855,12 +1013,14 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
     ws.write(row, 0, "Category", styles["header"])
     ws.merge_range(row, 1, row, 3, f"Share of hours at ≥{use_pct}% of license", styles["header"])
     ws.write(row, 4, "Sites", styles["header"])
+    ws.write(row, 5, "Type", styles["header"])
     row += 1
     for name, _floor, style, rule in LICENSE_CATEGORIES:
         ws.set_row(row, 18)
         ws.write(row, 0, name, styles[style])
         ws.merge_range(row, 1, row, 3, rule, styles["text"])
         ws.write_number(row, 4, counts[name], styles["int"])
+        ws.write(row, 5, LICENSE_TYPE[style], styles[style])
         row += 1
     ws.set_row(row, 18)
     ws.write(row, 0, "Total listed", styles["header"])
@@ -1511,11 +1671,16 @@ OSS_BLOCKS = (
 
 
 def _listed_because(item: dict) -> str:
-    if item["touch"] and item["license"]:
-        return "Peak touch + License"
-    if item["touch"]:
-        return "Peak touch"
-    return "License"
+    parts = []
+    if item.get("category") == CAT_TX:
+        parts.append(CAT_TX)
+    elif item.get("category") == CAT_PEAK:
+        parts.append(CAT_PEAK)
+    elif item.get("category") == CAT_LICENSE:
+        parts.append(CAT_LICENSE)
+    if item.get("license_listed") and item.get("category") != CAT_LICENSE:
+        parts.append(CAT_LICENSE)
+    return " + ".join(parts) or CAT_LICENSE
 
 
 def write_site_list(
@@ -1535,7 +1700,7 @@ def write_site_list(
         "No.",
         "ERBS",
         "Tech",
-        "Listed because",
+        "Category",
         "Severity",
         "Peak (Mbit/s)",
         f"{TOUCH_LEVEL_NAME} (Mbit/s)",
@@ -1570,7 +1735,7 @@ def write_site_list(
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
         "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%. "
-        "Tx Issues Suspected: listed, and (License − Peak) / License is at least 15%.",
+        "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected.",
         styles["note"],
     )
     header_row = 3
@@ -1629,7 +1794,7 @@ def write_site_list(
         lines = item["lines"]
         touch = item["touch"]
         stat = item.get("lic_stat")
-        severity = touch["severity"] if touch else "—"
+        severity = item.get("display_severity") or (touch["severity"] if touch else "—")
         where_touch = touch["cap_when"] if touch else lines["cap_when"]
         ws.write_number(row, 0, i + 1, ifmt)
         ws.write_url(
@@ -1817,12 +1982,15 @@ def write_issue_snapshots(
         first = r0 + 1
 
         tags = []
-        if touch:
-            if touch.get("double_check"):
-                tags.append(f"Tx Issues Suspected · gap {float(touch['gap']) * 100:.1f}%")
-            else:
-                tags.append(f"Peak touch {touch['severity']}")
-        if lic:
+        if item.get("category") == CAT_TX and touch:
+            tags.append(
+                f"{CAT_TX} {item['display_severity']} · gap {float(touch['gap']) * 100:.1f}% · {TX_COMMENT}"
+            )
+        elif item.get("category") == CAT_PEAK and touch:
+            tags.append(f"{CAT_PEAK} {item['display_severity']}")
+        elif item.get("category") == CAT_LICENSE:
+            tags.append(f"{CAT_LICENSE} {item.get('display_severity', '')}")
+        if lic and item.get("category") != CAT_LICENSE:
             tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
         ws.set_row(top, 26)
         ws.merge_range(
@@ -2024,15 +2192,11 @@ def write_workbook(
     # One chart per site from either list, and both tables link to it.
     stats = license_summary.get("stats_by_site", {}) if license_summary else {}
     attach_chart_lines(work, charts, stats)
-    apply_double_check(records, stats)
-    order = {rec["site"]: i for i, rec in enumerate(records)}
-    charts = sorted(
-        (item for item in charts if item["touch"]),
-        key=lambda item: order[item["site"]],
-    ) + [item for item in charts if not item["touch"]]
+    apply_tx(records, stats)
+    stamp_charts(charts, records)
     chart_index = {item["site"]: i for i, item in enumerate(charts)}
-    n_double = sum(1 for rec in records if rec.get("double_check"))
-    print(f"Tx Issues Suspected (gap ≥ {GAP_MIN * 100:.0f}%): {n_double}", flush=True)
+    n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
+    print(f"{CAT_TX} (gap ≥ {GAP_MIN * 100:.0f}%): {n_tx}  ·  charts {len(charts)}", flush=True)
     geo, tech_by_code, type_by_code = load_physical()
     attach_site_identity(charts, tech_by_code, type_by_code)
     busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
@@ -2069,7 +2233,7 @@ def write_workbook(
         4, 0, 4, 17,
         "Each dot is one physical site (the first 7 characters of the ERBS). "
         "Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate. "
-        "Tx Issues Suspected stays on that peak-touch grade here. "
+        "Map severity is the site's category grade. Medium is drawn as Moderate. Decision is the 10% to under 15% gap. "
         f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
         styles["note"],
     )
@@ -2148,9 +2312,11 @@ def main() -> None:
     print(f"Sites scored (≥{MIN_SAMPLES} samples, Peak ≥ {MIN_PEAK_MBPS:.0f}): "
           f"{work.loc[work['Peak'].notna(), 'eNodeB Name'].nunique()}")
     print(f"Listed (peak ratio ≥ 10%): {len(records)}")
-    for name, floor in SEVERITY_BANDS:
-        print(f"  {name} (≥{floor:.0f}%): {by_sev[name]}")
-    print(f"  {SEV_DOUBLE} (gap ≥ {GAP_MIN * 100:.0f}%): {by_sev[SEV_DOUBLE]}")
+    for cat in (CAT_PEAK, CAT_TX):
+        print(f"  {cat}:")
+        names = [name for name, _floor in SEVERITY_BANDS] if cat == CAT_PEAK else [name for name, _f, _r in TX_BANDS]
+        for name in names:
+            print(f"    {name}: {sum(1 for rec in records if rec['category'] == cat and rec['severity'] == name)}")
     print("Where touched:")
     for name in fcc.CAP_WHEN_COLS:
         print(f"  {name}: {by_when[name]}")

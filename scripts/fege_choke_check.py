@@ -789,6 +789,14 @@ def _styles(book):
             bg_color="#C6EFCE",
             font_color="#006100",
         ),
+        "decision": fmt(
+            border=1,
+            border_color=LINE,
+            align="center",
+            bold=True,
+            bg_color="#D6EAF8",
+            font_color="#1A5276",
+        ),
         "above": fmt(
             border=1,
             border_color=LINE,
