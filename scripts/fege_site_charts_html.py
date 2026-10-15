@@ -14,7 +14,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "22.5"
+HTML_VERSION = "22.6"
+EXCEL_VERSION = "v22"
 FLAG_NAMES = (
     "DL Throughput<7Mbps",
     "Data Vol>50GB",
@@ -290,7 +291,7 @@ HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hourly charts — HTML __HTML_VERSION__</title>
+<title>Hourly charts — Excel __EXCEL_VERSION__</title>
 <style>
   :root {
     --navy: #1F4E79;
@@ -310,7 +311,7 @@ HTML = r"""<!DOCTYPE html>
     color: var(--ink);
     background: var(--paper);
     display: grid;
-    grid-template-columns: 340px 1fr;
+    grid-template-columns: 248px 1fr;
     height: 100vh;
   }
   aside {
@@ -321,28 +322,32 @@ HTML = r"""<!DOCTYPE html>
     min-height: 0;
   }
   header, .chart-head { padding: 14px 16px 10px; }
+  aside header { padding: 6px 8px 2px; }
   .chart-head { padding: 8px 16px 4px; }
   h1 { margin: 0; font-size: 18px; color: var(--navy); }
+  aside h1 { font-size: 13px; }
   .sub { margin: 4px 0 0; color: #595959; font-size: 12px; }
-  .tools { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 8px; }
+  aside .sub { margin-top: 1px; font-size: 10px; line-height: 1.2; }
+  .tools { padding: 0 8px 4px; display: flex; flex-direction: column; gap: 4px; }
   input[type="search"] {
     width: 100%;
     border: 1px solid #b0b0b0;
     border-radius: 4px;
-    padding: 8px 10px;
+    padding: 3px 6px;
     font: inherit;
-    font-size: 14px;
+    font-size: 11px;
   }
-  .filters { display: flex; flex-wrap: wrap; gap: 6px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 3px; }
   .filters button, .nav button {
     border: 1px solid #b0b0b0;
     background: #fff;
-    border-radius: 14px;
+    border-radius: 12px;
     padding: 4px 10px;
     font: inherit;
     font-size: 12px;
     cursor: pointer;
   }
+  .filters button { padding: 1px 6px; font-size: 10px; }
   .filters button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
   #list { overflow: auto; flex: 1; position: relative; }
   #spacer { position: relative; }
@@ -350,19 +355,19 @@ HTML = r"""<!DOCTYPE html>
     position: absolute;
     left: 0;
     right: 0;
-    height: 52px;
+    height: 32px;
     text-align: left;
     border: 0;
     border-bottom: 1px solid #eee;
     background: #fff;
-    padding: 6px 12px;
+    padding: 2px 8px;
     cursor: pointer;
     font: inherit;
     overflow: hidden;
   }
   .site.on { background: #deebf7; }
-  .site .name { font-weight: 700; color: var(--navy); }
-  .site .meta { color: #595959; font-size: 12px; margin-top: 2px; }
+  .site .name { font-weight: 700; color: var(--navy); font-size: 12px; line-height: 1.15; white-space: nowrap; }
+  .site .meta { color: #595959; font-size: 10px; margin-top: 0; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sev { font-weight: 700; }
   .sev.Severe { color: var(--severe); }
   .sev.High { color: var(--high); }
@@ -401,7 +406,7 @@ HTML = r"""<!DOCTYPE html>
   .nav { display: flex; gap: 6px; }
   @media (max-width: 860px) {
     .oss { grid-template-columns: 1fr; }
-    body { grid-template-columns: 1fr; grid-template-rows: 42vh 1fr; }
+    body { grid-template-columns: 1fr; grid-template-rows: 32vh 1fr; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
   }
 </style>
@@ -409,7 +414,7 @@ HTML = r"""<!DOCTYPE html>
 <body>
 <aside>
   <header>
-    <h1>1. Site List · HTML __HTML_VERSION__</h1>
+    <h1>1. Site List · Excel __EXCEL_VERSION__</h1>
     <p class="sub" id="period"></p>
   </header>
   <div class="tools">
@@ -451,7 +456,7 @@ let filter = "All";
 let query = "";
 let current = 0;
 let shown = [];
-const ROW_H = 52;
+const ROW_H = 32;
 const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "All Sites"];
 VIEW.sites.forEach((site, index) => { site.i = index; });
 
@@ -768,7 +773,10 @@ renderChart();
 
 def write_html(view: dict, dest: Path) -> None:
     payload = json.dumps(view, separators=(",", ":")).replace("<", "\\u003c")
-    page = HTML.replace("__DATA__", payload).replace("__HTML_VERSION__", view.get("htmlVersion", HTML_VERSION))
+    page = (
+        HTML.replace("__DATA__", payload)
+        .replace("__EXCEL_VERSION__", EXCEL_VERSION)
+    )
     dest.write_text(page, encoding="utf-8")
 
 

@@ -59,10 +59,10 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 |---|---|
 | `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
-| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.html` | Web chart page. The Excel workbook stays `v22`. HTML versions move on their own: 22.1 chart list, 22.2 All Sites tab, 22.3 OSS 1h blocks, 22.4 hourly axis like sheet 2, 22.5 smaller KPI and OSS blocks with the BH Flag chips removed so the chart is taller. Open the latest, 22.5 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.html` | Web chart page. The Excel workbook stays `v22`, and the page header shows Excel v22. HTML files move on their own: 22.1 chart list, 22.2 All Sites tab, 22.3 OSS 1h blocks, 22.4 hourly axis like sheet 2, 22.5 smaller KPI and OSS blocks, 22.6 a narrower site list so the chart is wider. Open the latest, 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
 
-Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v22.5_Charts.html`
+Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html`
 
 The workbook is about 70 MB. GitHub’s file page will not download it (“we can’t show files that are this big”). Use the `raw.githubusercontent.com` link for that file.
 
