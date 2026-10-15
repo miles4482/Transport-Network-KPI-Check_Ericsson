@@ -96,6 +96,7 @@ def load_chart_view(path: Path) -> dict:
                 "license": _round(license_mbps),
                 "threshold": _round(license_mbps * 0.85) if license_mbps else None,
                 "gap": _round(_num(row[17]), 1),
+                "listed": True,
             }
         )
     by_site = {item["site"]: item for item in sites}
@@ -120,6 +121,116 @@ def load_chart_view(path: Path) -> dict:
         values = series[item["site"]]
         item["rx"] = [values.get(key) for key in axis]
     return {"period": period, "labels": labels, "flagNames": list(FLAG_NAMES), "sites": sites}
+
+
+def _axis_keys(labels: list[str], year: int) -> list[tuple]:
+    keys = []
+    for label in labels:
+        day_text, clock = label.split()
+        day, month_name = day_text.split("/")
+        month = datetime.strptime(month_name, "%b").month
+        keys.append((datetime(year, month, int(day)).date(), int(clock[:2])))
+    return keys
+
+
+def add_all_sites(view: dict, feg_path: Path, license_path: Path, geo_path: Path) -> None:
+    """Append every ERBS from the FEG window. Issue sites already on the list stay as they are."""
+    import sys
+
+    import numpy as np
+    import pandas as pd
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import fege_choke_check as fcc
+    import fege_choke_check_ericsson as eric
+
+    year = 2026
+    for token in view["period"].replace("–", " ").replace("-", " ").split():
+        if token.isdigit() and len(token) == 4:
+            year = int(token)
+    axis = _axis_keys(view["labels"], year)
+    axis_pos = {key: index for index, key in enumerate(axis)}
+    known = {item["site"] for item in view["sites"]}
+
+    raw = eric.load_ericsson(feg_path)
+    frame = pd.DataFrame(
+        {
+            "site": raw[eric.ERIC_SITE_COL].astype(str).str.strip(),
+            "date": pd.to_datetime(fcc.parse_kpi_date(raw["Date"])).dt.date,
+            "hour": raw["Hour"].astype(int),
+            "rx": pd.to_numeric(raw[eric.ERIC_DL_COL], errors="coerce"),
+        }
+    )
+    frame = frame[frame["date"].isin({day for day, _hour in axis})]
+    frame = frame.drop_duplicates(["site", "date", "hour"], keep="last")
+
+    license_of: dict[str, float] = {}
+    if license_path.exists():
+        lic = pd.read_excel(license_path, engine="pyxlsb")
+        caps = pd.to_numeric(lic["dlBbCapacityNet"], errors="coerce")
+        license_of = {
+            str(node).strip(): float(cap)
+            for node, cap in zip(lic["NodeId"], caps)
+            if pd.notna(cap) and float(cap) > 0
+        }
+    tech_of: dict[str, str] = {}
+    type_of: dict[str, str] = {}
+    if geo_path.exists():
+        geo = fcc.load_site_geo(geo_path)
+        tech_of = fcc.tech_by_site_from_geo(geo)
+        type_of = fcc.site_type_by_site_from_geo(geo)
+
+    added = 0
+    for site, group in frame.groupby("site", sort=True):
+        if site in known or not site:
+            continue
+        series = [None] * len(axis)
+        hours = group["hour"].to_numpy()
+        values = group["rx"].to_numpy(dtype=float)
+        days = group["date"].to_numpy()
+        finite_mask = np.isfinite(values)
+        for day, hour, value, ok in zip(days, hours, values, finite_mask):
+            pos = axis_pos.get((day, int(hour)))
+            if pos is None:
+                continue
+            series[pos] = round(float(value), 2) if ok else None
+        finite = values[finite_mask]
+        peak = float(np.max(finite)) if len(finite) else None
+        level = peak * 0.95 if peak is not None else None
+        touch = finite_mask & (values >= level) if level is not None else finite_mask & False
+        hours_n = int(finite_mask.sum())
+        hours_on = int(touch.sum())
+        busy = (hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END) & touch
+        off = touch & ~((hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END))
+        license_mbps = license_of.get(site)
+        code = site[:7]
+        gap = None
+        if license_mbps and peak:
+            gap = round((license_mbps - peak) / license_mbps * 100.0, 1)
+        view["sites"].append(
+            {
+                "n": None,
+                "site": site,
+                "tech": tech_of.get(code, "4G"),
+                "siteType": type_of.get(code, "Not found"),
+                "category": "",
+                "severity": "",
+                "flags": ["", "", "", ""],
+                "peak": round(peak, 2) if peak is not None else None,
+                "level": round(level, 2) if level is not None else None,
+                "touchHours": hours_on,
+                "totalHours": hours_n,
+                "ratio": round(100.0 * hours_on / hours_n, 1) if hours_n else None,
+                "where": fcc.cap_window(int(busy.sum()), int(off.sum())) if hours_on else "",
+                "license": round(license_mbps, 2) if license_mbps else None,
+                "threshold": round(license_mbps * 0.85, 2) if license_mbps else None,
+                "gap": gap,
+                "rx": series,
+                "listed": False,
+            }
+        )
+        added += 1
+    print(f"All Sites: {len(view['sites']):,} ERBS ({added:,} not on 1. Site List)", flush=True)
 
 
 HTML = r"""<!DOCTYPE html>
@@ -180,16 +291,21 @@ HTML = r"""<!DOCTYPE html>
     cursor: pointer;
   }
   .filters button.on { background: var(--navy); color: #fff; border-color: var(--navy); }
-  #list { overflow: auto; flex: 1; }
+  #list { overflow: auto; flex: 1; position: relative; }
+  #spacer { position: relative; }
   .site {
-    width: 100%;
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 52px;
     text-align: left;
     border: 0;
     border-bottom: 1px solid #eee;
     background: #fff;
-    padding: 8px 12px;
+    padding: 6px 12px;
     cursor: pointer;
     font: inherit;
+    overflow: hidden;
   }
   .site.on { background: #deebf7; }
   .site .name { font-weight: 700; color: var(--navy); }
@@ -277,19 +393,35 @@ const on = Object.fromEntries(SERIES.map(s => [s.key, true]));
 let filter = "All";
 let query = "";
 let current = 0;
-const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage"];
+let shown = [];
+const ROW_H = 52;
+const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "All Sites"];
+VIEW.sites.forEach((site, index) => { site.i = index; });
 
 function primary(site) {
   return (site.category || "").split(" + ")[0];
 }
 function visible() {
   const q = query.trim().toLowerCase();
-  return VIEW.sites.filter(site => {
-    if (filter !== "All" && primary(site) !== filter) return false;
+  const rows = VIEW.sites.filter(site => {
+    if (filter === "All Sites") {
+      /* every ERBS in the FEG window */
+    } else if (filter === "All") {
+      if (!site.listed) return false;
+    } else if (!site.listed || primary(site) !== filter) return false;
     if (!q) return true;
-    return [site.site, site.tech, site.siteType, site.category, site.severity, String(site.n)]
+    return [site.site, site.tech, site.siteType, site.category, site.severity, String(site.n || "")]
       .join(" ").toLowerCase().includes(q);
   });
+  if (filter === "All Sites") rows.sort((a, b) => a.site.localeCompare(b.site));
+  return rows;
+}
+function rowTitle(site) {
+  return site.listed && site.n ? site.n + ". " + site.site : site.site;
+}
+function rowMeta(site) {
+  if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "");
+  return primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span> · " + site.tech + " · " + site.siteType;
 }
 function yScale(values) {
   const finite = values.filter(v => v != null && isFinite(v));
@@ -408,8 +540,12 @@ function kpi(label, value, unit) {
 }
 function renderChart() {
   const site = VIEW.sites[current];
-  document.getElementById("title").textContent = `${String(site.n).padStart(2, "0")}    ${site.site}`;
-  document.getElementById("caption").textContent = `${VIEW.period}    ·    ${site.category}    ·    ${site.severity}`;
+  document.getElementById("title").textContent = site.listed && site.n
+    ? `${String(site.n).padStart(2, "0")}    ${site.site}`
+    : site.site;
+  document.getElementById("caption").textContent = site.listed
+    ? `${VIEW.period}    ·    ${site.category}    ·    ${site.severity}`
+    : `${VIEW.period}    ·    Not listed`;
   document.getElementById("kpis").innerHTML = [
     kpi("Peak (Mbit/s)", site.peak, ""),
     kpi("Below5%Peak (Mbit/s)", site.level, ""),
@@ -421,44 +557,63 @@ function renderChart() {
     kpi("Tech", site.tech, ""),
     kpi("Site Type", site.siteType, "")
   ].join("");
-  document.getElementById("flags").innerHTML = VIEW.flagNames.map((name, i) => {
+  document.getElementById("flags").innerHTML = site.listed ? VIEW.flagNames.map((name, i) => {
     const value = site.flags[i] || "";
     return `<span class="flag ${value === "Yes" ? "yes" : ""}">${name}: ${value || "—"}</span>`;
-  }).join("");
-  const rows = visible();
+  }).join("") : "";
   document.querySelectorAll(".site").forEach(button => {
     button.classList.toggle("on", Number(button.dataset.index) === current);
   });
-  const selected = document.querySelector(`.site[data-index="${current}"]`);
-  if (selected) selected.scrollIntoView({ block: "nearest" });
   try { history.replaceState(null, "", "#" + encodeURIComponent(site.site)); } catch (err) {}
   draw();
 }
-function renderList() {
-  const rows = visible();
+function paintRows() {
+  const spacer = document.getElementById("spacer");
+  if (!spacer) return;
   const list = document.getElementById("list");
-  list.innerHTML = rows.map(site => `
-    <button class="site ${site.n - 1 === current ? "on" : ""}" data-index="${site.n - 1}" type="button">
-      <div><span class="name">${site.n}. ${site.site}</span></div>
-      <div class="meta">${primary(site)} · <span class="sev ${site.severity}">${site.severity}</span> · ${site.tech} · ${site.siteType}</div>
-    </button>`).join("") || `<p class="sub" style="padding:12px">No sites match.</p>`;
+  if (!shown.length) {
+    spacer.innerHTML = '<p class="sub" style="position:absolute;padding:12px">No sites match.</p>';
+    return;
+  }
+  const start = Math.max(0, Math.floor(list.scrollTop / ROW_H) - 8);
+  const end = Math.min(shown.length, Math.ceil((list.scrollTop + list.clientHeight) / ROW_H) + 8);
+  spacer.innerHTML = shown.slice(start, end).map((site, offset) => `
+    <button class="site ${site.i === current ? "on" : ""}" style="top:${(start + offset) * ROW_H}px" data-index="${site.i}" type="button">
+      <div><span class="name">${rowTitle(site)}</span></div>
+      <div class="meta">${rowMeta(site)}</div>
+    </button>`).join("");
+}
+function renderList(scrollToSelection) {
+  shown = visible();
+  const list = document.getElementById("list");
+  if (!document.getElementById("spacer")) list.innerHTML = '<div id="spacer"></div>';
+  const spacer = document.getElementById("spacer");
+  spacer.style.height = Math.max(shown.length, 1) * ROW_H + "px";
+  if (scrollToSelection) {
+    const pos = shown.findIndex(site => site.i === current);
+    if (pos >= 0) list.scrollTop = Math.max(0, pos * ROW_H - 8);
+  }
+  paintRows();
   document.getElementById("filters").innerHTML = filters.map(name => {
-    const count = name === "All" ? VIEW.sites.length : VIEW.sites.filter(site => primary(site) === name).length;
-    return `<button type="button" data-filter="${name}" class="${filter === name ? "on" : ""}">${name} ${count}</button>`;
+    const count = name === "All Sites"
+      ? VIEW.sites.length
+      : name === "All"
+        ? VIEW.sites.filter(site => site.listed).length
+        : VIEW.sites.filter(site => site.listed && primary(site) === name).length;
+    return `<button type="button" data-filter="${name}" class="${filter === name ? "on" : ""}">${name} ${count.toLocaleString()}</button>`;
   }).join("");
 }
 function selectIndex(index) {
   current = Math.max(0, Math.min(VIEW.sites.length - 1, index));
-  renderList();
+  renderList(true);
   renderChart();
 }
 function step(delta) {
-  const rows = visible();
-  if (!rows.length) return;
-  let pos = rows.findIndex(site => site.n - 1 === current);
+  if (!shown.length) return;
+  let pos = shown.findIndex(site => site.i === current);
   if (pos < 0) pos = 0;
-  pos = Math.max(0, Math.min(rows.length - 1, pos + delta));
-  selectIndex(rows[pos].n - 1);
+  pos = Math.max(0, Math.min(shown.length - 1, pos + delta));
+  selectIndex(shown[pos].i);
 }
 document.getElementById("list").addEventListener("click", event => {
   const button = event.target.closest(".site");
@@ -470,15 +625,16 @@ document.getElementById("filters").addEventListener("click", event => {
   if (!button) return;
   filter = button.dataset.filter;
   const rows = visible();
-  if (rows.length && !rows.some(site => site.n - 1 === current)) current = rows[0].n - 1;
-  renderList();
+  if (rows.length && !rows.some(site => site.i === current)) current = rows[0].i;
+  renderList(true);
   renderChart();
 });
+document.getElementById("list").addEventListener("scroll", paintRows);
 document.getElementById("q").addEventListener("input", event => {
   query = event.target.value;
   const rows = visible();
-  if (rows.length && !rows.some(site => site.n - 1 === current)) current = rows[0].n - 1;
-  renderList();
+  if (rows.length && !rows.some(site => site.i === current)) current = rows[0].i;
+  renderList(true);
   renderChart();
 });
 document.getElementById("prev").addEventListener("click", () => step(-1));
@@ -497,11 +653,12 @@ document.getElementById("legend").addEventListener("change", event => {
   on[key] = event.target.checked;
   draw();
 });
-document.getElementById("period").textContent = `${VIEW.period} · ${VIEW.sites.length} sites · same order as 1. Site List`;
+const issueCount = VIEW.sites.filter(site => site.listed).length;
+document.getElementById("period").textContent = `${VIEW.period} · ${issueCount.toLocaleString()} issue sites · All Sites ${VIEW.sites.length.toLocaleString()}`;
 const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
 const hashed = VIEW.sites.findIndex(site => site.site === hash || String(site.n) === hash);
 current = hashed >= 0 ? hashed : 0;
-renderList();
+renderList(true);
 renderChart();
 </script>
 </body>
@@ -518,8 +675,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workbook")
     parser.add_argument("-o", "--output", required=True)
+    parser.add_argument("--feg", default="FEG_KPI_Eric.xlsb")
+    parser.add_argument("--license", default="DL_License_File.xlsb")
+    parser.add_argument("--geo", default="Physical_Site_Database_14Oct26.xlsx")
     args = parser.parse_args()
     view = load_chart_view(Path(args.workbook))
+    feg_path = Path(args.feg)
+    if feg_path.exists():
+        add_all_sites(view, feg_path, Path(args.license), Path(args.geo))
     dest = Path(args.output)
     write_html(view, dest)
     hours = len(view["labels"])
