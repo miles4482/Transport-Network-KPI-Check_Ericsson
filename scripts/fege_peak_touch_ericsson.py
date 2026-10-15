@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v19.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v20.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -1705,7 +1705,12 @@ def write_site_list(
     ws.set_tab_color("#375623")
     use_pct = f"{LICENSE_USE * 100:.0f}"
     left = ["No.", "ERBS", "Tech", "Site Type", "Category", "Severity"]
-    bh_flag = ["DL Throughput 1h (Mbps)", "Data Volume 1h (GB)"]
+    bh_flag = [
+        "DL Throughput<7Mbps",
+        "Data Vol>50GB",
+        "DL Throughput<5Mbps",
+        "Data Vol>50GB",
+    ]
     right = [
         "Peak (Mbit/s)",
         f"{TOUCH_LEVEL_NAME} (Mbit/s)",
@@ -1719,7 +1724,7 @@ def write_site_list(
         "Share of hours (%)",
         f"Where ≥{use_pct}%",
     ]
-    widths = [8, 16, 12, 14, 28, 16, 22, 20, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18]
+    widths = [8, 16, 12, 14, 28, 16, 22, 16, 22, 16, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     bh_start = len(left)
@@ -1732,7 +1737,7 @@ def write_site_list(
             col += 1
     ws.set_row(0, 22)
     ws.merge_range(0, 0, 0, col - 1, "Site list — Dashboard issue sites", styles["title"])
-    ws.set_row(1, 32)
+    ws.set_row(1, 48)
     ws.merge_range(
         1, 0, 1, col - 1,
         f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
@@ -1740,8 +1745,10 @@ def write_site_list(
         "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
         "BH Flag 1H is Yes when either 1 BusyHour block matches: "
-        "DL Throughput ≤ 7 Mbps, or Data Volume ≥ 50 GB. "
-        "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
+        "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
+        "DL Throughput<5Mbps at or below 5 Mbps. "
+        "The two Data Vol>50GB columns use the same 50 GB rule. "
+        "A blank cell means that 1h value is missing in both blocks. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%. "
         "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected.",
         styles["note"],
@@ -1781,7 +1788,9 @@ def write_site_list(
             "border_color": "white",
         }
     )
-    ws.merge_range(header_row, bh_start, header_row, bh_start + 1, "BH Flag 1H", bh_group)
+    ws.merge_range(
+        header_row, bh_start, header_row, bh_start + len(bh_flag) - 1, "BH Flag 1H", bh_group
+    )
     for offset, name in enumerate(bh_flag):
         ws.write(header_row + 1, bh_start + offset, name, bh_sub)
     yes_fmt = book.add_format(
@@ -1860,15 +1869,15 @@ def write_site_list(
         sev_style = SEVERITY_STYLE.get(severity)
         ws.write_string(row, 5, severity, styles[sev_style] if sev_style else cfmt)
         busy = busy_by_code.get(item.get("site_code", ""), {})
-        tp_flag = _bh_yes(
-            (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h"))),
-            lambda value: value <= 7.0,
+        tp_1h = (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h")))
+        vol_1h = (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h")))
+        flags = (
+            _bh_yes(tp_1h, lambda value: value <= 7.0),
+            _bh_yes(vol_1h, lambda value: value >= 50.0),
+            _bh_yes(tp_1h, lambda value: value <= 5.0),
+            _bh_yes(vol_1h, lambda value: value >= 50.0),
         )
-        vol_flag = _bh_yes(
-            (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h"))),
-            lambda value: value >= 50.0,
-        )
-        for offset, flag in enumerate((tp_flag, vol_flag)):
+        for offset, flag in enumerate(flags):
             if flag == "Yes":
                 ws.write_string(row, bh_start + offset, "Yes", yes_fmt)
             elif flag == "No":

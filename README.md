@@ -36,7 +36,7 @@ v2 lists only sites with hours on cap ≥ 50% (`--min-hours-pct 50`).
 
 Run (v2 method): `python3 scripts/fege_choke_check_ericsson.py FEG_KPI_Eric.xlsb --trace total --min-hours-pct 50 -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
-Run (v19: Peak Touch, License usage, Tx Flat/Chocked, BH Flag 1H): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
+Run (v20: Peak Touch, License usage, Tx Flat/Chocked, BH Flag 1H): `python3 scripts/fege_peak_touch_ericsson.py FEG_KPI_Eric.xlsb -o FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`
 
 v6 lists a license site when `Max DL Capacity Usage / dlBbCapacityNet` is at least 85% for at least 40% of its hours.
 
