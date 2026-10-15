@@ -14,7 +14,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "22.4"
+HTML_VERSION = "22.5"
 FLAG_NAMES = (
     "DL Throughput<7Mbps",
     "Data Vol>50GB",
@@ -321,6 +321,7 @@ HTML = r"""<!DOCTYPE html>
     min-height: 0;
   }
   header, .chart-head { padding: 14px 16px 10px; }
+  .chart-head { padding: 8px 16px 4px; }
   h1 { margin: 0; font-size: 18px; color: var(--navy); }
   .sub { margin: 4px 0 0; color: #595959; font-size: 12px; }
   .tools { padding: 0 12px 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -370,29 +371,25 @@ HTML = r"""<!DOCTYPE html>
   .sev.Decision { color: var(--decision); }
   main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .chart-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-  .kpis { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 8px; }
+  .kpis { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 16px 4px; }
   .kpi {
     background: #fff;
     border: 1px solid var(--line);
-    border-radius: 4px;
-    padding: 6px 10px;
-    min-width: 120px;
+    border-radius: 3px;
+    padding: 2px 6px;
   }
-  .kpi b { display: block; font-size: 16px; }
-  .kpi span { color: #595959; font-size: 11px; }
-  .oss { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 8px; }
-  .oss-block { background: #fff; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-  .oss-block h2 { margin: 0; padding: 6px 10px; color: #fff; font-size: 13px; }
-  .oss-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 10px; font-size: 12px; border-top: 1px solid #eee; }
+  .kpi b { display: block; font-size: 12px; line-height: 1.15; white-space: nowrap; }
+  .kpi span { color: #595959; font-size: 9px; line-height: 1.15; white-space: nowrap; }
+  .oss { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 0 16px 4px; }
+  .oss-block { background: #fff; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .oss-block h2 { margin: 0; padding: 2px 8px; color: #fff; font-size: 11px; font-weight: 700; line-height: 1.25; }
+  .oss-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 8px; font-size: 11px; line-height: 1.25; border-top: 1px solid #eee; }
   .oss-row span { color: #595959; }
   .oss-row b { font-variant-numeric: tabular-nums; }
-  .oss-empty { padding: 8px 10px; color: #595959; font-size: 12px; }
-  .flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
-  .flag { font-size: 12px; border-radius: 4px; padding: 3px 8px; background: #fff; border: 1px solid var(--line); }
-  .flag.yes { background: #c6efce; color: #006100; font-weight: 700; border-color: #a9d08e; }
-  #stage { flex: 1; min-height: 280px; margin: 0 16px 16px; background: #fff; border: 1px solid #d0d0d0; position: relative; }
+  .oss-empty { padding: 3px 8px; color: #595959; font-size: 11px; }
+  #stage { flex: 1; min-height: 280px; margin: 0 16px 8px; background: #fff; border: 1px solid #d0d0d0; position: relative; }
   canvas { width: 100%; height: 100%; display: block; }
-  .legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 16px 0; font-size: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 16px 2px; font-size: 11px; }
   .legend label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
   .swatch { width: 22px; height: 0; border-top-width: 3px; border-top-style: solid; }
   .swatch.dash { border-top-style: dashed; }
@@ -434,7 +431,6 @@ HTML = r"""<!DOCTYPE html>
   </div>
   <div class="kpis" id="kpis"></div>
   <div class="oss" id="oss"></div>
-  <div class="flags" id="flags"></div>
   <div class="legend" id="legend"></div>
   <div id="stage">
     <canvas id="chart"></canvas>
@@ -665,10 +661,6 @@ function renderChart() {
     ossBlock("DataBusyHour (1 BusyHour)", "#6C3483", ossPair && ossPair[0]),
     ossBlock("UserBusyHour (1 BusyHour)", "#1A5276", ossPair && ossPair[1])
   ].join("");
-  document.getElementById("flags").innerHTML = site.listed ? VIEW.flagNames.map((name, i) => {
-    const value = site.flags[i] || "";
-    return `<span class="flag ${value === "Yes" ? "yes" : ""}">${name}: ${value || "—"}</span>`;
-  }).join("") : "";
   document.querySelectorAll(".site").forEach(button => {
     button.classList.toggle("on", Number(button.dataset.index) === current);
   });
