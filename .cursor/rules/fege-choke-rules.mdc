@@ -1,0 +1,18 @@
+---
+description: FEGE choke rules for the Ericsson report, copied from the NCCD v6 agent
+alwaysApply: true
+---
+
+Follow `RULES.md` in the repo root. Those are the FEGE site-choking rules (v84, NCCD v6 state) copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report), branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`.
+
+This repo is the Ericsson report. Use the same detection, listing, severity, chart, GeoPlot, UrgentTxBWInc, capacity-only OSS rollup, BusyHour flags, Site List 4H/1H block, Missing FEG Port, Immediate actions, and Comparison rules.
+
+Read uploaded files from the name. `OSS` in the name means OSS KPI. `FEG` or `FEGE` in the name means the FEG port KPI (`RxMaxSpeed` is the choke trace). A physical-site or site-database name means geo, Tech, and Site Type. A thana name means the GeoPlot thana list. Dates, V1/V2, and part numbers say how to combine files. They do not change what the file is. Do not require the old Dhaka or NCCD filenames.
+
+OSS and FEG use the same combine order, kept as separate finals: for each date, merge V1 part1+part2, merge V2 part1+part2, then merge V1+V2. Do the same for every other date. If a later upload uses a different version or part count, follow the tokens in the names. Score the dates inside the files and keep every threshold in `RULES.md`. DHAPT35 and DHAPT48 are the shape pattern, not a name filter.
+
+The counter and column names in `RULES.md` are the Huawei export names. If the Ericsson export names them differently, map them to the same roles. Do not change thresholds or shapes.
+
+Do not build a report until the Ericsson FEG, OSS, physical site database, and top-thana files are in the repo. Skip the Comparison sheet until the user provides the previous FEG file.
+
+Keep the BusyHour column spelling **Chocked**. Do not use Tx Total BW to list or grade a site. Do not read the old site-level OSS RAR; roll cell-level OSS to site-hour and drop L900 (`MID(Cell Name, 8, 3)` starts with `L09`). Report file name: `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`.
