@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v20.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v21.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -1709,7 +1709,7 @@ def write_site_list(
         "DL Throughput<7Mbps",
         "Data Vol>50GB",
         "DL Throughput<5Mbps",
-        "Data Vol>50GB",
+        "Data Vol>100GB",
     ]
     right = [
         "Peak (Mbit/s)",
@@ -1746,8 +1746,7 @@ def write_site_list(
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
         "BH Flag 1H is Yes when either 1 BusyHour block matches: "
         "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
-        "DL Throughput<5Mbps at or below 5 Mbps. "
-        "The two Data Vol>50GB columns use the same 50 GB rule. "
+        "DL Throughput<5Mbps at or below 5 Mbps, Data Vol>100GB at least 100 GB. "
         "A blank cell means that 1h value is missing in both blocks. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%. "
         "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected.",
@@ -1875,7 +1874,7 @@ def write_site_list(
             _bh_yes(tp_1h, lambda value: value <= 7.0),
             _bh_yes(vol_1h, lambda value: value >= 50.0),
             _bh_yes(tp_1h, lambda value: value <= 5.0),
-            _bh_yes(vol_1h, lambda value: value >= 50.0),
+            _bh_yes(vol_1h, lambda value: value >= 100.0),
         )
         for offset, flag in enumerate(flags):
             if flag == "Yes":
