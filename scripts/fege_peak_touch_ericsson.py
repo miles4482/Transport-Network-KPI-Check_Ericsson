@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v21.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -169,7 +169,7 @@ def apply_tx(records: list[dict], stats_by_site: dict) -> None:
             rec["category"] = CAT_PEAK
     records.sort(
         key=lambda r: (
-            0 if r["category"] == CAT_PEAK else 1,
+            0 if r["category"] == CAT_TX else 1,
             SEVERITY_ORDER[r["severity"]],
             -r["hours_pct"],
             r["site"],
@@ -197,7 +197,7 @@ def stamp_charts(charts: list[dict], records: list[dict]) -> None:
         else:
             item["category"] = CAT_LICENSE
             item["display_severity"] = license_type(float(lic["share"])) if lic else SEV_LOW
-    cat_rank = {CAT_PEAK: 0, CAT_TX: 1, CAT_LICENSE: 2}
+    cat_rank = {CAT_TX: 0, CAT_PEAK: 1, CAT_LICENSE: 2}
     charts.sort(
         key=lambda item: (
             cat_rank[item["category"]],
@@ -404,7 +404,7 @@ def _blank_or_num(ws, row: int, col: int, value: int, num_fmt, blank_fmt) -> Non
 
 
 def _write_category_matrix(book, ws, styles, row: int, records: list[dict], license_records: list[dict], tf) -> int:
-    """Dashboard category table: Peak Touch, License usage, Tx Flat/Chocked."""
+    """Dashboard category table: Tx Flat/Chocked, then Peak Touch, then License usage."""
     comment_fmt = book.add_format(
         {
             "font_name": "Calibri",
@@ -444,6 +444,11 @@ def _write_category_matrix(book, ws, styles, row: int, records: list[dict], lice
         }
     )
     blocks = []
+    tx_rows = []
+    for name, _floor, rule in TX_BANDS:
+        chosen = [rec for rec in records if rec["category"] == CAT_TX and rec["severity"] == name]
+        tx_rows.append((name, chosen, TX_COMMENT, rule, rec_when(chosen)))
+    blocks.append((CAT_TX, tx_rows))
     peak_rows = []
     for name, _floor in SEVERITY_BANDS:
         chosen = [rec for rec in records if rec["category"] == CAT_PEAK and rec["severity"] == name]
@@ -454,11 +459,6 @@ def _write_category_matrix(book, ws, styles, row: int, records: list[dict], lice
         chosen = [rec for rec in license_records if license_type(rec["share"]) == sev]
         lic_rows.append((sev, chosen, "", LICENSE_RULES[sev], rec_when(chosen)))
     blocks.append((CAT_LICENSE, lic_rows))
-    tx_rows = []
-    for name, _floor, rule in TX_BANDS:
-        chosen = [rec for rec in records if rec["category"] == CAT_TX and rec["severity"] == name]
-        tx_rows.append((name, chosen, TX_COMMENT, rule, rec_when(chosen)))
-    blocks.append((CAT_TX, tx_rows))
 
     ws.set_row(row, 22)
     ws.merge_range(row, 0, row, 7, "Category summary", tf["group"])
@@ -559,13 +559,14 @@ def write_dashboard(
         f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
         f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
         f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
-        "Three categories. Peak Touch: peak ratio Severe ≥ 40%, High 30% to under 40%, "
-        "Medium 20% to under 30%, Low 10% to under 20%. Under 10% is not listed. "
-        "License usage: share of hours at ≥85% of license, Severe ≥ 50%, High 40% to under 50%, "
-        "Medium 30% to under 40%, Low 20% to under 30%. "
+        "Three categories, with Tx Flat/Chocked first. "
         "Tx Flat/Chocked: a listed site whose Gap = (License − Peak) / License is at least 10%. "
         "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 15% to under 20%, "
         "Decision 10% to under 15%. Comment is Tx Issues Suspected. "
+        "Peak Touch: peak ratio Severe ≥ 40%, High 30% to under 40%, "
+        "Medium 20% to under 30%, Low 10% to under 20%. Under 10% is not listed. "
+        "License usage: share of hours at ≥85% of license, Severe ≥ 50%, High 40% to under 50%, "
+        "Medium 30% to under 40%, Low 20% to under 30%. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
@@ -607,18 +608,18 @@ def write_dashboard(
     ]
     indexed = list(enumerate(records))
     sections: list[tuple[str, str, list]] = []
-    for name, _floor in SEVERITY_BANDS:
-        group = [
-            (i, rec) for i, rec in indexed
-            if rec["category"] == CAT_PEAK and rec["severity"] == name
-        ]
-        sections.append((f"{CAT_PEAK} · {name}", PEAK_RULES[name], group))
     for name, _floor, rule in TX_BANDS:
         group = [
             (i, rec) for i, rec in indexed
             if rec["category"] == CAT_TX and rec["severity"] == name
         ]
         sections.append((f"{CAT_TX} · {name}", f"{rule}. {TX_COMMENT}.", group))
+    for name, _floor in SEVERITY_BANDS:
+        group = [
+            (i, rec) for i, rec in indexed
+            if rec["category"] == CAT_PEAK and rec["severity"] == name
+        ]
+        sections.append((f"{CAT_PEAK} · {name}", PEAK_RULES[name], group))
     for name, note, group in sections:
         if not group:
             continue
