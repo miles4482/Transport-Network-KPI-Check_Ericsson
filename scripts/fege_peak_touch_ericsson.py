@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v18.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v19.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -1630,6 +1630,14 @@ def prepare_oss(
     return busy, missing, note
 
 
+def _bh_yes(values: tuple[float, float], test) -> str | None:
+    """Yes when either 1h value matches. No when values exist and neither matches."""
+    finite = [value for value in values if np.isfinite(value)]
+    if not finite:
+        return None
+    return "Yes" if any(test(value) for value in finite) else "No"
+
+
 def _finite(value: object) -> float:
     try:
         number = float(value)
@@ -1696,12 +1704,9 @@ def write_site_list(
     ws.set_footer("&L&8OSS 4H/1H from the cell KPI, rolled to the first 7 characters of the ERBS&R&8Page &P of &N")
     ws.set_tab_color("#375623")
     use_pct = f"{LICENSE_USE * 100:.0f}"
-    identity = [
-        "No.",
-        "ERBS",
-        "Tech",
-        "Category",
-        "Severity",
+    left = ["No.", "ERBS", "Tech", "Site Type", "Category", "Severity"]
+    bh_flag = ["DL Throughput 1h (Mbps)", "Data Volume 1h (GB)"]
+    right = [
         "Peak (Mbit/s)",
         f"{TOUCH_LEVEL_NAME} (Mbit/s)",
         "Touch hours",
@@ -1713,12 +1718,13 @@ def write_site_list(
         f"Hours ≥{use_pct}%",
         "Share of hours (%)",
         f"Where ≥{use_pct}%",
-        "Site Type",
     ]
-    widths = [8, 16, 12, 24, 24, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18, 14]
+    widths = [8, 16, 12, 14, 28, 16, 22, 20, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
-    oss_start = len(identity)
+    bh_start = len(left)
+    right_start = bh_start + len(bh_flag)
+    oss_start = right_start + len(right)
     col = oss_start
     for _title, _kind, _color, names in OSS_BLOCKS:
         for _name in names:
@@ -1733,6 +1739,8 @@ def write_site_list(
         "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
         "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
+        "BH Flag 1H is Yes when either 1 BusyHour block matches: "
+        "DL Throughput ≤ 7 Mbps, or Data Volume ≥ 50 GB. "
         "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%. "
         "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected.",
@@ -1741,8 +1749,54 @@ def write_site_list(
     header_row = 3
     ws.set_row(header_row, 18)
     ws.set_row(header_row + 1, 36)
-    for c, text in enumerate(identity):
+    for c, text in enumerate(left):
         ws.merge_range(header_row, c, header_row + 1, c, text, styles["header"])
+    for c, text in enumerate(right):
+        ws.merge_range(header_row, right_start + c, header_row + 1, right_start + c, text, styles["header"])
+    bh_group = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 10,
+            "font_color": "white",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#1F4E79",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "white",
+        }
+    )
+    bh_sub = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 9,
+            "font_color": "white",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#1F4E79",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "white",
+        }
+    )
+    ws.merge_range(header_row, bh_start, header_row, bh_start + 1, "BH Flag 1H", bh_group)
+    for offset, name in enumerate(bh_flag):
+        ws.write(header_row + 1, bh_start + offset, name, bh_sub)
+    yes_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "font_color": "#006100",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#C6EFCE",
+            "border": 1,
+            "border_color": "#D9D9D9",
+        }
+    )
     col = oss_start
     for title, _kind, color, names in OSS_BLOCKS:
         group = book.add_format(
@@ -1801,36 +1855,51 @@ def write_site_list(
             row, 1, f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}", link, string=item["site"]
         )
         ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
-        ws.write_string(row, 3, _listed_because(item), tfmt)
+        ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
+        ws.write_string(row, 4, _listed_because(item), tfmt)
         sev_style = SEVERITY_STYLE.get(severity)
-        ws.write_string(row, 4, severity, styles[sev_style] if sev_style else cfmt)
-        ws.write_number(row, 5, lines["peak"], nfmt)
-        ws.write_number(row, 6, lines["level"], nfmt)
-        ws.write_number(row, 7, lines["hours_on"], ifmt)
-        ws.write_number(row, 8, lines["hours_n"], ifmt)
-        ws.write_number(row, 9, lines["hours_pct"], pfmt)
-        ws.write_string(row, 10, where_touch, cfmt)
+        ws.write_string(row, 5, severity, styles[sev_style] if sev_style else cfmt)
+        busy = busy_by_code.get(item.get("site_code", ""), {})
+        tp_flag = _bh_yes(
+            (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h"))),
+            lambda value: value <= 7.0,
+        )
+        vol_flag = _bh_yes(
+            (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h"))),
+            lambda value: value >= 50.0,
+        )
+        for offset, flag in enumerate((tp_flag, vol_flag)):
+            if flag == "Yes":
+                ws.write_string(row, bh_start + offset, "Yes", yes_fmt)
+            elif flag == "No":
+                ws.write_string(row, bh_start + offset, "No", cfmt)
+            else:
+                ws.write_blank(row, bh_start + offset, None, cfmt)
+        ws.write_number(row, right_start, lines["peak"], nfmt)
+        ws.write_number(row, right_start + 1, lines["level"], nfmt)
+        ws.write_number(row, right_start + 2, lines["hours_on"], ifmt)
+        ws.write_number(row, right_start + 3, lines["hours_n"], ifmt)
+        ws.write_number(row, right_start + 4, lines["hours_pct"], pfmt)
+        ws.write_string(row, right_start + 5, where_touch, cfmt)
         peak_mbps = float(lines["peak"])
         if stat:
             lic_mbps = float(stat["license"])
-            ws.write_number(row, 11, lic_mbps, nfmt)
+            ws.write_number(row, right_start + 6, lic_mbps, nfmt)
             gap = (
                 (lic_mbps - peak_mbps) / lic_mbps
                 if lic_mbps > 0 and np.isfinite(peak_mbps)
                 else float("nan")
             )
             if np.isfinite(gap):
-                ws.write_number(row, 12, gap * 100.0, pfmt)
+                ws.write_number(row, right_start + 7, gap * 100.0, pfmt)
             else:
-                ws.write_blank(row, 12, None, nfmt)
-            ws.write_number(row, 13, stat["hours_on"], ifmt)
-            ws.write_number(row, 14, stat["share"], pfmt)
-            ws.write_string(row, 15, stat["cap_when"], cfmt)
+                ws.write_blank(row, right_start + 7, None, nfmt)
+            ws.write_number(row, right_start + 8, stat["hours_on"], ifmt)
+            ws.write_number(row, right_start + 9, stat["share"], pfmt)
+            ws.write_string(row, right_start + 10, stat["cap_when"], cfmt)
         else:
-            for c in (11, 12, 13, 14, 15):
+            for c in range(right_start + 6, right_start + 11):
                 ws.write_blank(row, c, None, cfmt)
-        ws.write_string(row, 16, item.get("site_type") or "Not found", cfmt)
-        busy = busy_by_code.get(item.get("site_code", ""), {})
         for offset, key in enumerate(OSS_VALUE_KEYS):
             value = _finite(busy.get(key))
             if np.isfinite(value):

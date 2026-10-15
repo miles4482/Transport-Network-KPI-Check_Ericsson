@@ -31,6 +31,7 @@ Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Us
 - **Tx Flat/Chocked** (v18): a listed site whose Gap = (License − Peak) / License is at least 10%. Severity is Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 15% to under 20%, Decision 10% to under 15%. The comment is Tx Issues Suspected. v17 used one label, Tx Issues Suspected, for a gap of at least 15%.
 - **License usage** (v18): hours at ≥ 85% of license. Severe ≥ 50% of hours, High 40% to under 50%, Medium 30% to under 40%, Low 20% to under 30%. Under 20% is not listed. v6–v17 listed a site at ≥ 40% of hours and grouped ≥ 70% / 50% to under 70% / 40% to under 50%.
 - Dashboard category table has Peak Touch, License usage, and Tx Flat/Chocked. Sheet 1. Site List and 2. HourlyChartOfIssueSites hold each ERBS once. 5. GeoPlot uses Severe / High / Moderate / Low / Decision. Medium is drawn as Moderate.
+- **BH Flag 1H** (v19, Site List only): after Severity, two columns. DL Throughput 1h (Mbps) is Yes when either DataBusyHour (1 BusyHour) or UserBusyHour (1 BusyHour) DL Throughput is ≤ 7 Mbps. Data Volume 1h (GB) is Yes when either block's Data Volume is ≥ 50 GB. Both values missing is blank. This flag does not add or remove sites. Site Type sits immediately after Tech.
 - Guards kept from section 4: at least 24 hourly samples and Peak ≥ 20 Mbit/s.
 - Busy-hour touch (08:00–22:00) and Where touched (Busy + off-peak / Busy hours / Off-peak) are shown as information; they do not change the grade.
 - Sort: severity, then touch ratio descending, then site name.
@@ -57,7 +58,7 @@ Physical database: `Physical_Site_Database_14Oct26.xlsx`. Top thanas: `Top Thana
 
 The physical site code is the first 7 characters of the ERBS. That code matches the Site Code column.
 
-**1. Site List** copies Tech (4G or 4G+5G) and Site Type (GF, RTT, GFRT, and the other values in the file) from that row. A code with no row shows Tech **4G** and Site Type **Not found**.
+**1. Site List** copies Tech (4G or 4G+5G) and Site Type (GF, RTT, GFRT, and the other values in the file) from that row. A code with no row shows Tech **4G** and Site Type **Not found**. Column order (v19): No., ERBS, Tech, Site Type, Category, Severity, then the BH Flag 1H group, then Peak and the license columns, then the OSS 4H/1H blocks.
 
 ### v11 OSS cell rollup
 
