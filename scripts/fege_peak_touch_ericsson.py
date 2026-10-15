@@ -13,14 +13,14 @@ For every ERBS over the scored window (the 3 days in the file, every hour):
 
 Grade by peak ratio (touch hours / hours with data):
 
-    >= 50%  Severe
-    >= 40%  High      (40% to under 50%)
-    >= 30%  Medium    (30% to under 40%)
-    >= 20%  Low       (20% to under 30%)
-    <  20%  not listed
+    >= 40%  Severe
+    >= 30%  High      (30% to under 40%)
+    >= 20%  Medium    (20% to under 30%)
+    >= 10%  Low       (10% to under 20%)
+    <  10%  not listed
 
-Double Check: a listed site whose license is at least 30% above its Peak.
-Gap = (License - Peak) / License. Suspected Tx issue.
+Tx Issues Suspected: a listed site whose license is at least 15% above its Peak.
+Gap = (License - Peak) / License.
 
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
 Peak of at least 20 Mbit/s to be scored.
@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v16.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v17.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -77,15 +77,15 @@ SEV_SEVERE = "Severe"
 SEV_HIGH = "High"
 SEV_MEDIUM = "Medium"
 SEV_LOW = "Low"
-SEV_DOUBLE = "Double Check"
-# Gap = (License - Peak) / License. A listed site at or above this gap is Double Check.
-GAP_MIN = 0.30
-DOUBLE_COMMENT = "Suspected Tx Issues"
+SEV_DOUBLE = "Tx Issues Suspected"
+# Gap = (License - Peak) / License. A listed site at or above this gap is Tx Issues Suspected.
+GAP_MIN = 0.15
+DOUBLE_COMMENT = "Tx Issues Suspected"
 SEVERITY_BANDS = (
-    (SEV_SEVERE, 50.0),
-    (SEV_HIGH, 40.0),
-    (SEV_MEDIUM, 30.0),
-    (SEV_LOW, 20.0),
+    (SEV_SEVERE, 40.0),
+    (SEV_HIGH, 30.0),
+    (SEV_MEDIUM, 20.0),
+    (SEV_LOW, 10.0),
 )
 SEVERITY_ORDER = {name: i for i, (name, _pct) in enumerate(SEVERITY_BANDS)}
 SEVERITY_ORDER[SEV_DOUBLE] = len(SEVERITY_ORDER)
@@ -97,15 +97,14 @@ SEVERITY_STYLE = {
     SEV_DOUBLE: "double",
 }
 SEVERITY_NOTES = (
-    (SEV_SEVERE, "Severe: peak ratio at least 50% (hours at or above Below5%Peak)."),
-    (SEV_HIGH, "High: peak ratio 40% to under 50%."),
-    (SEV_MEDIUM, "Medium: peak ratio 30% to under 40%."),
-    (SEV_LOW, "Low: peak ratio 20% to under 30%. Under 20% is not listed."),
+    (SEV_SEVERE, "Severe: peak ratio at least 40% (hours at or above Below5%Peak)."),
+    (SEV_HIGH, "High: peak ratio 30% to under 40%."),
+    (SEV_MEDIUM, "Medium: peak ratio 20% to under 30%."),
+    (SEV_LOW, "Low: peak ratio 10% to under 20%. Under 10% is not listed."),
     (
         SEV_DOUBLE,
-        "Double Check: the site is listed, and the license is at least 30% above the Peak. "
-        "Gap = (License − Peak) / License. Suspected Tx issues. "
-        "The peak-touch grade is replaced by Double Check.",
+        "Tx Issues Suspected: the site is listed, and the license is at least 15% above the Peak. "
+        "Gap = (License − Peak) / License. The peak-touch grade is replaced by Tx Issues Suspected.",
     ),
 )
 CHART_DATA_PER_ROW = eric.CHART_DATA_PER_ROW
@@ -128,7 +127,7 @@ def severity(touch_pct: float) -> str | None:
 
 
 def apply_double_check(records: list[dict], stats_by_site: dict) -> None:
-    """Relabel a listed site Double Check when the license sits ≥30% above its Peak."""
+    """Relabel a listed site Tx Issues Suspected when the license sits ≥15% above its Peak."""
     for rec in records:
         stat = stats_by_site.get(rec["site"])
         lic = float(stat["license"]) if stat else float("nan")
@@ -349,7 +348,7 @@ def write_dashboard(
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
     ws.set_tab_color("#C65911")
-    for i, w in enumerate([14, 16, 16, 16, 18, 14, 14, 16, 18, 18, 16, 12, 22]):
+    for i, w in enumerate([22, 16, 22, 16, 18, 22, 14, 16, 18, 18, 16, 12, 22]):
         ws.set_column(i, i, w)
     tf = eric._tile_formats(book)
 
@@ -372,10 +371,10 @@ def write_dashboard(
         f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
         f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
         "Peak ratio = touch hours / hours with data. "
-        "Severe ≥ 50%, High 40% to under 50%, Medium 30% to under 40%, Low 20% to under 30%. "
-        "Under 20% is not listed. "
-        "Double Check: a listed site whose license is at least 30% above its Peak. "
-        "Gap = (License − Peak) / License. Suspected Tx issues. "
+        "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 10% to under 20%. "
+        "Under 10% is not listed. "
+        "Tx Issues Suspected: a listed site whose license is at least 15% above its Peak. "
+        "Gap = (License − Peak) / License. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
@@ -388,9 +387,9 @@ def write_dashboard(
         3,
         [
             (0, "Sites checked", n_sites, False),
-            (2, "Listed (peak ratio ≥ 20%)", len(records), True),
-            (4, "Severe (≥ 50%)", counts[SEV_SEVERE], True),
-            (6, "Double Check (gap ≥ 30%)", counts[SEV_DOUBLE], True),
+            (2, "Listed (peak ratio ≥ 10%)", len(records), True),
+            (4, "Severe (≥ 40%)", counts[SEV_SEVERE], True),
+            (6, "Tx Issues Suspected", counts[SEV_DOUBLE], True),
         ],
         tf,
     )
@@ -1551,7 +1550,7 @@ def write_site_list(
         f"Where ≥{use_pct}%",
         "Site Type",
     ]
-    widths = [8, 16, 12, 24, 14, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18, 14]
+    widths = [8, 16, 12, 24, 24, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18, 14]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     oss_start = len(identity)
@@ -1571,7 +1570,7 @@ def write_site_list(
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
         "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
         "There is no Avg peak line. Below5%Peak is Peak × 95%. "
-        "Double Check: listed, and (License − Peak) / License is at least 30%.",
+        "Tx Issues Suspected: listed, and (License − Peak) / License is at least 15%.",
         styles["note"],
     )
     header_row = 3
@@ -1820,7 +1819,7 @@ def write_issue_snapshots(
         tags = []
         if touch:
             if touch.get("double_check"):
-                tags.append(f"Double Check · gap {float(touch['gap']) * 100:.1f}%")
+                tags.append(f"Tx Issues Suspected · gap {float(touch['gap']) * 100:.1f}%")
             else:
                 tags.append(f"Peak touch {touch['severity']}")
         if lic:
@@ -2033,7 +2032,7 @@ def write_workbook(
     ) + [item for item in charts if not item["touch"]]
     chart_index = {item["site"]: i for i, item in enumerate(charts)}
     n_double = sum(1 for rec in records if rec.get("double_check"))
-    print(f"Double Check (gap ≥ {GAP_MIN * 100:.0f}%): {n_double}", flush=True)
+    print(f"Tx Issues Suspected (gap ≥ {GAP_MIN * 100:.0f}%): {n_double}", flush=True)
     geo, tech_by_code, type_by_code = load_physical()
     attach_site_identity(charts, tech_by_code, type_by_code)
     busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
@@ -2070,7 +2069,7 @@ def write_workbook(
         4, 0, 4, 17,
         "Each dot is one physical site (the first 7 characters of the ERBS). "
         "Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate. "
-        "Double Check stays on that peak-touch grade here. "
+        "Tx Issues Suspected stays on that peak-touch grade here. "
         f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
         styles["note"],
     )
@@ -2148,7 +2147,7 @@ def main() -> None:
     print(f"Sites checked: {work['eNodeB Name'].nunique()}")
     print(f"Sites scored (≥{MIN_SAMPLES} samples, Peak ≥ {MIN_PEAK_MBPS:.0f}): "
           f"{work.loc[work['Peak'].notna(), 'eNodeB Name'].nunique()}")
-    print(f"Listed (peak ratio ≥ 20%): {len(records)}")
+    print(f"Listed (peak ratio ≥ 10%): {len(records)}")
     for name, floor in SEVERITY_BANDS:
         print(f"  {name} (≥{floor:.0f}%): {by_sev[name]}")
     print(f"  {SEV_DOUBLE} (gap ≥ {GAP_MIN * 100:.0f}%): {by_sev[SEV_DOUBLE]}")
