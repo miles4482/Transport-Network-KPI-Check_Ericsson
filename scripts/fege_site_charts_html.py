@@ -123,6 +123,57 @@ def load_chart_view(path: Path) -> dict:
     return {"period": period, "labels": labels, "flagNames": list(FLAG_NAMES), "sites": sites}
 
 
+OSS_1H_NAMES = (
+    "DL Throughput 1h (Mbps)",
+    "DLPRBUtilization,%",
+    "Data Volume 1h (GB)",
+    "Max User 1h",
+    "Mean User 1h",
+)
+
+
+def load_oss_1h(path: Path) -> dict[str, list]:
+    """1 BusyHour OSS KPIs from URGENTBWINC_BusyHour, keyed by the 7-character site code.
+
+    Each value is [data block, user block]. A block is throughput, PRB, volume, max user, mean user.
+    """
+    book = load_workbook(path, read_only=True, data_only=True)
+    ws = book["URGENTBWINC_BusyHour"]
+    header = None
+    site_col = 1
+    for row in ws.iter_rows(min_row=1, max_row=8, values_only=True):
+        if row and "DL Throughput 1h (Mbps)" in row:
+            header = list(row)
+            break
+    if header is None:
+        book.close()
+        raise SystemExit("URGENTBWINC_BusyHour has no 1h throughput header")
+    throughput_cols = [i for i, name in enumerate(header) if name == "DL Throughput 1h (Mbps)"]
+    if len(throughput_cols) < 2:
+        book.close()
+        raise SystemExit("Expected Data and User 1h throughput columns")
+    blocks = []
+    for start in throughput_cols[:2]:
+        names = header[start:start + len(OSS_1H_NAMES)]
+        if tuple(names) != OSS_1H_NAMES:
+            book.close()
+            raise SystemExit(f"1h KPI columns changed: {names}")
+        blocks.append(start)
+    if "eNodeB Name" in header:
+        site_col = header.index("eNodeB Name")
+    oss: dict[str, list] = {}
+    for row in ws.iter_rows(min_row=1, values_only=True):
+        site = _text(row[site_col]) if row and len(row) > site_col else ""
+        if not site or site == "eNodeB Name":
+            continue
+        pair = []
+        for start in blocks:
+            pair.append([_round(_num(row[start + offset])) for offset in range(len(OSS_1H_NAMES))])
+        oss[site[:7]] = pair
+    book.close()
+    return oss
+
+
 def _axis_keys(labels: list[str], year: int) -> list[tuple]:
     keys = []
     for label in labels:
@@ -328,6 +379,13 @@ HTML = r"""<!DOCTYPE html>
   }
   .kpi b { display: block; font-size: 16px; }
   .kpi span { color: #595959; font-size: 11px; }
+  .oss { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px 8px; }
+  .oss-block { background: #fff; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .oss-block h2 { margin: 0; padding: 6px 10px; color: #fff; font-size: 13px; }
+  .oss-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 10px; font-size: 12px; border-top: 1px solid #eee; }
+  .oss-row span { color: #595959; }
+  .oss-row b { font-variant-numeric: tabular-nums; }
+  .oss-empty { padding: 8px 10px; color: #595959; font-size: 12px; }
   .flags { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
   .flag { font-size: 12px; border-radius: 4px; padding: 3px 8px; background: #fff; border: 1px solid var(--line); }
   .flag.yes { background: #c6efce; color: #006100; font-weight: 700; border-color: #a9d08e; }
@@ -344,6 +402,7 @@ HTML = r"""<!DOCTYPE html>
   }
   .nav { display: flex; gap: 6px; }
   @media (max-width: 860px) {
+    .oss { grid-template-columns: 1fr; }
     body { grid-template-columns: 1fr; grid-template-rows: 42vh 1fr; }
     aside { border-right: 0; border-bottom: 1px solid var(--line); }
   }
@@ -373,6 +432,7 @@ HTML = r"""<!DOCTYPE html>
     </div>
   </div>
   <div class="kpis" id="kpis"></div>
+  <div class="oss" id="oss"></div>
   <div class="flags" id="flags"></div>
   <div class="legend" id="legend"></div>
   <div id="stage">
@@ -557,6 +617,17 @@ function renderChart() {
     kpi("Tech", site.tech, ""),
     kpi("Site Type", site.siteType, "")
   ].join("");
+  const ossNames = ["DL Throughput 1h (Mbps)", "DLPRBUtilization,%", "Data Volume 1h (GB)", "Max User 1h", "Mean User 1h"];
+  const ossPair = (VIEW.oss || {})[site.site.slice(0, 7)];
+  function ossBlock(title, color, values) {
+    if (!values) return `<section class="oss-block"><h2 style="background:${color}">${title}</h2><p class="oss-empty">No OSS row for this site code.</p></section>`;
+    const rows = ossNames.map((name, i) => `<div class="oss-row"><span>${name}</span><b>${values[i] == null ? "—" : values[i]}</b></div>`).join("");
+    return `<section class="oss-block"><h2 style="background:${color}">${title}</h2>${rows}</section>`;
+  }
+  document.getElementById("oss").innerHTML = [
+    ossBlock("DataBusyHour (1 BusyHour)", "#6C3483", ossPair && ossPair[0]),
+    ossBlock("UserBusyHour (1 BusyHour)", "#1A5276", ossPair && ossPair[1])
+  ].join("");
   document.getElementById("flags").innerHTML = site.listed ? VIEW.flagNames.map((name, i) => {
     const value = site.flags[i] || "";
     return `<span class="flag ${value === "Yes" ? "yes" : ""}">${name}: ${value || "—"}</span>`;
@@ -680,6 +751,8 @@ def main() -> None:
     parser.add_argument("--geo", default="Physical_Site_Database_14Oct26.xlsx")
     args = parser.parse_args()
     view = load_chart_view(Path(args.workbook))
+    view["oss"] = load_oss_1h(Path(args.workbook))
+    print(f"OSS 1h site codes: {len(view['oss']):,}", flush=True)
     feg_path = Path(args.feg)
     if feg_path.exists():
         add_all_sites(view, feg_path, Path(args.license), Path(args.geo))
