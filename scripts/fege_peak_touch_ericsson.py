@@ -11,13 +11,16 @@ For every ERBS over the scored window (the 3 days in the file, every hour):
                    i.e. within 5% below the Peak
     Touch ratio  = touch hours / total hours with data
 
-Grade by touch ratio:
+Grade by peak ratio (touch hours / hours with data):
 
-    >= 60%  Severe
-    >= 50%  High      (50% to under 60%)
-    >= 40%  Medium    (40% to under 50%)
-    >= 20%  Low       (20% to under 40%)
+    >= 50%  Severe
+    >= 40%  High      (40% to under 50%)
+    >= 30%  Medium    (30% to under 40%)
+    >= 20%  Low       (20% to under 30%)
     <  20%  not listed
+
+Double Check: a listed site whose license is at least 30% above its Peak.
+Gap = (License - Peak) / License. Suspected Tx issue.
 
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
 Peak of at least 20 Mbit/s to be scored.
@@ -43,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v15.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v16.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
@@ -74,24 +77,36 @@ SEV_SEVERE = "Severe"
 SEV_HIGH = "High"
 SEV_MEDIUM = "Medium"
 SEV_LOW = "Low"
+SEV_DOUBLE = "Double Check"
+# Gap = (License - Peak) / License. A listed site at or above this gap is Double Check.
+GAP_MIN = 0.30
+DOUBLE_COMMENT = "Suspected Tx Issues"
 SEVERITY_BANDS = (
-    (SEV_SEVERE, 60.0),
-    (SEV_HIGH, 50.0),
-    (SEV_MEDIUM, 40.0),
+    (SEV_SEVERE, 50.0),
+    (SEV_HIGH, 40.0),
+    (SEV_MEDIUM, 30.0),
     (SEV_LOW, 20.0),
 )
 SEVERITY_ORDER = {name: i for i, (name, _pct) in enumerate(SEVERITY_BANDS)}
+SEVERITY_ORDER[SEV_DOUBLE] = len(SEVERITY_ORDER)
 SEVERITY_STYLE = {
     SEV_SEVERE: "severe",
     SEV_HIGH: "high",
     SEV_MEDIUM: "moderate",
     SEV_LOW: "low",
+    SEV_DOUBLE: "double",
 }
 SEVERITY_NOTES = (
-    (SEV_SEVERE, "Severe: at least 60% of the hours are at or above Below5%Peak."),
-    (SEV_HIGH, "High: 50% to under 60% of the hours are at or above Below5%Peak."),
-    (SEV_MEDIUM, "Medium: 40% to under 50% of the hours are at or above Below5%Peak."),
-    (SEV_LOW, "Low: 20% to under 40% of the hours are at or above Below5%Peak. Under 20% is not listed."),
+    (SEV_SEVERE, "Severe: peak ratio at least 50% (hours at or above Below5%Peak)."),
+    (SEV_HIGH, "High: peak ratio 40% to under 50%."),
+    (SEV_MEDIUM, "Medium: peak ratio 30% to under 40%."),
+    (SEV_LOW, "Low: peak ratio 20% to under 30%. Under 20% is not listed."),
+    (
+        SEV_DOUBLE,
+        "Double Check: the site is listed, and the license is at least 30% above the Peak. "
+        "Gap = (License − Peak) / License. Suspected Tx issues. "
+        "The peak-touch grade is replaced by Double Check.",
+    ),
 )
 CHART_DATA_PER_ROW = eric.CHART_DATA_PER_ROW
 CHART_DATA_BLOCK_ROWS = eric.CHART_DATA_BLOCK_ROWS
@@ -110,6 +125,22 @@ def severity(touch_pct: float) -> str | None:
         if touch_pct >= floor:
             return name
     return None
+
+
+def apply_double_check(records: list[dict], stats_by_site: dict) -> None:
+    """Relabel a listed site Double Check when the license sits ≥30% above its Peak."""
+    for rec in records:
+        stat = stats_by_site.get(rec["site"])
+        lic = float(stat["license"]) if stat else float("nan")
+        peak = float(rec["peak"])
+        gap = (lic - peak) / lic if np.isfinite(lic) and lic > 0 and np.isfinite(peak) else float("nan")
+        rec["license_mbps"] = lic
+        rec["gap"] = gap
+        rec["touch_severity"] = rec["severity"]
+        rec["double_check"] = bool(np.isfinite(gap) and gap >= GAP_MIN)
+        if rec["double_check"]:
+            rec["severity"] = SEV_DOUBLE
+    records.sort(key=lambda r: (SEVERITY_ORDER[r["severity"]], -r["hours_pct"], r["site"]))
 
 
 def analyse_touch(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[dict]]:
@@ -262,7 +293,8 @@ def geo_issue_records(charts: list[dict]) -> tuple[list[dict], int]:
     for item in charts:
         code = item["site_code"]
         touch = item["touch"]
-        sev = GEO_SEV[touch["severity"]] if touch else None
+        grade = (touch.get("touch_severity") or touch["severity"]) if touch else None
+        sev = GEO_SEV.get(grade) if grade else None
         cur = by_code.get(code)
         if cur is None:
             by_code[code] = {
@@ -317,7 +349,7 @@ def write_dashboard(
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
     ws.set_tab_color("#C65911")
-    for i, w in enumerate([8, 16, 18, 16, 16, 16, 20, 18, 18, 18]):
+    for i, w in enumerate([14, 16, 16, 16, 18, 14, 14, 16, 18, 18, 16, 12, 22]):
         ws.set_column(i, i, w)
     tf = eric._tile_formats(book)
 
@@ -326,60 +358,70 @@ def write_dashboard(
         counts[rec["severity"]] += 1
 
     ws.set_row(0, 28)
-    ws.merge_range("A1:J1", fcc.REPORT_TITLE, styles["title"])
+    ws.merge_range("A1:L1", fcc.REPORT_TITLE, styles["title"])
     ws.set_row(1, 18)
     ws.merge_range(
-        "A2:J2",
+        "A2:L2",
         f"{eric.ZONE} transmission    ·    {period_txt}    ·    hourly    ·    {source_name}",
         styles["subtitle"],
     )
-    ws.set_row(2, 96 if oss_note else 64)
+    ws.set_row(2, 120 if oss_note else 80)
     method = (
         f"Method: only {TRACE_COL} is read. Peak = the highest hourly value in the window "
         f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
         f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
         f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
-        "Touch ratio = touch hours / hours with data. "
-        "Severe ≥ 60%, High 50% to under 60%, Medium 40% to under 50%, Low 20% to under 40%. "
+        "Peak ratio = touch hours / hours with data. "
+        "Severe ≥ 50%, High 40% to under 50%, Medium 30% to under 40%, Low 20% to under 30%. "
         "Under 20% is not listed. "
+        "Double Check: a listed site whose license is at least 30% above its Peak. "
+        "Gap = (License − Peak) / License. Suspected Tx issues. "
         f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
     if oss_note:
         method = f"{method} {oss_note}"
-    ws.merge_range("A3:J3", method, styles["note"])
+    ws.merge_range("A3:L3", method, styles["note"])
 
     row = eric._write_tiles(
         ws,
         3,
         [
             (0, "Sites checked", n_sites, False),
-            (2, "Listed (touch ≥ 20%)", len(records), True),
-            (4, "Severe (≥ 60%)", counts[SEV_SEVERE], True),
-            (
-                6,
-                "High / Medium / Low",
-                f"{counts[SEV_HIGH]}  /  {counts[SEV_MEDIUM]}  /  {counts[SEV_LOW]}",
-                False,
-            ),
+            (2, "Listed (peak ratio ≥ 20%)", len(records), True),
+            (4, "Severe (≥ 50%)", counts[SEV_SEVERE], True),
+            (6, "Double Check (gap ≥ 30%)", counts[SEV_DOUBLE], True),
         ],
         tf,
     )
     row += 1
 
-    sevs = [name for name, _pct in SEVERITY_BANDS]
+    sevs = [name for name, _pct in SEVERITY_BANDS] + [SEV_DOUBLE]
     matrix = {sev: {when: 0 for when in fcc.CAP_WHEN_COLS} for sev in sevs}
+    comment_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "bold": True,
+            "font_color": "#C00000",
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#D9D9D9",
+        }
+    )
     for rec in records:
         if rec["cap_when"] in matrix[rec["severity"]]:
             matrix[rec["severity"]][rec["cap_when"]] += 1
     ws.set_row(row, 22)
-    ws.merge_range(row, 0, row, 9, "Touch Window Observation", tf["group"])
+    ws.merge_range(row, 0, row, 11, "Touch Window Observation", tf["group"])
     row += 1
     ws.set_row(row, 28)
     ws.write(row, 0, "Severity", styles["header"])
     for offset, text in enumerate(fcc.CAP_WHEN_COLS):
         ws.write(row, 1 + offset, text, styles["header"])
     ws.write(row, 4, "Total", styles["header"])
+    ws.write(row, 5, "Comments", styles["header"])
     row += 1
     for sev in sevs:
         ws.set_row(row, 18)
@@ -391,12 +433,17 @@ def write_dashboard(
             else:
                 ws.write_blank(row, 1 + offset, None, styles["center"])
         ws.write_number(row, 4, counts[sev], styles["int"])
+        if sev == SEV_DOUBLE:
+            ws.write(row, 5, DOUBLE_COMMENT, comment_fmt)
+        else:
+            ws.write_blank(row, 5, None, styles["center"])
         row += 1
     ws.set_row(row, 18)
     ws.write(row, 0, "Grand Total", tf["total_label"])
     for offset, when in enumerate(fcc.CAP_WHEN_COLS):
         ws.write_number(row, 1 + offset, sum(matrix[sev][when] for sev in sevs), tf["total"])
     ws.write_number(row, 4, len(records), tf["total"])
+    ws.write_blank(row, 5, None, tf["total"])
     row += 2
 
     headers = [
@@ -407,9 +454,11 @@ def write_dashboard(
         f"{TOUCH_LEVEL_NAME} (Mbit/s)",
         "Touch hours",
         "Total hours",
-        "Touch ratio (%)",
+        "Peak ratio (%)",
         "Busy-hour touch (%)",
         "Where touched",
+        "License (Mbps)",
+        "Gap (%)",
     ]
     indexed = list(enumerate(records))
     for name, note in SEVERITY_NOTES:
@@ -421,13 +470,13 @@ def write_dashboard(
             row,
             0,
             row,
-            9,
+            11,
             f"{name}    ·    {len(group)} site{'s' if len(group) != 1 else ''}",
             styles["section"],
         )
         row += 1
         ws.set_row(row, 24)
-        ws.merge_range(row, 0, row, 9, note, styles["body"])
+        ws.merge_range(row, 0, row, 11, note, styles["body"])
         row += 1
         ws.set_row(row, 30)
         for col, text in enumerate(headers):
@@ -461,6 +510,16 @@ def write_dashboard(
             ws.write_number(row, 7, rec["hours_pct"], pfmt)
             ws.write_number(row, 8, rec["busy_pct"], pfmt)
             ws.write_string(row, 9, rec["cap_when"], cfmt)
+            gap = rec.get("gap", float("nan"))
+            lic = rec.get("license_mbps", float("nan"))
+            if np.isfinite(lic):
+                ws.write_number(row, 10, float(lic), nfmt)
+            else:
+                ws.write_blank(row, 10, None, nfmt)
+            if np.isfinite(gap):
+                ws.write_number(row, 11, float(gap) * 100.0, pfmt)
+            else:
+                ws.write_blank(row, 11, None, nfmt)
             row += 1
         row += 1
     if license_summary is not None:
@@ -1346,7 +1405,8 @@ def oss_issue_records(charts: list[dict]) -> list[dict]:
         code = item["site_code"]
         touch = item["touch"]
         sev = touch["severity"] if touch else None
-        cand = rank[sev] if sev else 9
+        grade = (touch.get("touch_severity") or sev) if touch else None
+        cand = rank.get(grade, 9) if grade else 9
         cur = best.get(code)
         if cur is not None and cand >= cur["_rank"]:
             continue
@@ -1482,15 +1542,16 @@ def write_site_list(
         f"{TOUCH_LEVEL_NAME} (Mbit/s)",
         "Touch hours",
         "Total hours",
-        "Touch ratio (%)",
+        "Peak ratio (%)",
         "Where touched",
         "License (Mbps)",
+        "Gap (%)",
         f"Hours ≥{use_pct}%",
         "Share of hours (%)",
         f"Where ≥{use_pct}%",
         "Site Type",
     ]
-    widths = [8, 16, 12, 24, 12, 16, 24, 14, 14, 16, 18, 16, 14, 18, 18, 14]
+    widths = [8, 16, 12, 24, 14, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18, 14]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     oss_start = len(identity)
@@ -1509,7 +1570,8 @@ def write_site_list(
         "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
         "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
         "A blank OSS cell means that site code is not in the OSS busy-hour scan. "
-        "There is no Avg peak line. Below5%Peak is Peak × 95%.",
+        "There is no Avg peak line. Below5%Peak is Peak × 95%. "
+        "Double Check: listed, and (License − Peak) / License is at least 30%.",
         styles["note"],
     )
     header_row = 3
@@ -1576,22 +1638,34 @@ def write_site_list(
         )
         ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
         ws.write_string(row, 3, _listed_because(item), tfmt)
-        ws.write_string(row, 4, severity, cfmt)
+        sev_style = SEVERITY_STYLE.get(severity)
+        ws.write_string(row, 4, severity, styles[sev_style] if sev_style else cfmt)
         ws.write_number(row, 5, lines["peak"], nfmt)
         ws.write_number(row, 6, lines["level"], nfmt)
         ws.write_number(row, 7, lines["hours_on"], ifmt)
         ws.write_number(row, 8, lines["hours_n"], ifmt)
         ws.write_number(row, 9, lines["hours_pct"], pfmt)
         ws.write_string(row, 10, where_touch, cfmt)
+        peak_mbps = float(lines["peak"])
         if stat:
-            ws.write_number(row, 11, stat["license"], nfmt)
-            ws.write_number(row, 12, stat["hours_on"], ifmt)
-            ws.write_number(row, 13, stat["share"], pfmt)
-            ws.write_string(row, 14, stat["cap_when"], cfmt)
+            lic_mbps = float(stat["license"])
+            ws.write_number(row, 11, lic_mbps, nfmt)
+            gap = (
+                (lic_mbps - peak_mbps) / lic_mbps
+                if lic_mbps > 0 and np.isfinite(peak_mbps)
+                else float("nan")
+            )
+            if np.isfinite(gap):
+                ws.write_number(row, 12, gap * 100.0, pfmt)
+            else:
+                ws.write_blank(row, 12, None, nfmt)
+            ws.write_number(row, 13, stat["hours_on"], ifmt)
+            ws.write_number(row, 14, stat["share"], pfmt)
+            ws.write_string(row, 15, stat["cap_when"], cfmt)
         else:
-            for c in (11, 12, 13, 14):
+            for c in (11, 12, 13, 14, 15):
                 ws.write_blank(row, c, None, cfmt)
-        ws.write_string(row, 15, item.get("site_type") or "Not found", cfmt)
+        ws.write_string(row, 16, item.get("site_type") or "Not found", cfmt)
         busy = busy_by_code.get(item.get("site_code", ""), {})
         for offset, key in enumerate(OSS_VALUE_KEYS):
             value = _finite(busy.get(key))
@@ -1745,7 +1819,10 @@ def write_issue_snapshots(
 
         tags = []
         if touch:
-            tags.append(f"Peak touch {touch['severity']}")
+            if touch.get("double_check"):
+                tags.append(f"Double Check · gap {float(touch['gap']) * 100:.1f}%")
+            else:
+                tags.append(f"Peak touch {touch['severity']}")
         if lic:
             tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
         ws.set_row(top, 26)
@@ -1944,11 +2021,19 @@ def write_workbook(
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
     license_records = license_summary["records"] if license_summary else []
     charts = issue_charts(records, license_records)
-    chart_index = {item["site"]: i for i, item in enumerate(charts)}
     # License results sit on the Dashboard, under the Peak-touch section.
     # One chart per site from either list, and both tables link to it.
     stats = license_summary.get("stats_by_site", {}) if license_summary else {}
     attach_chart_lines(work, charts, stats)
+    apply_double_check(records, stats)
+    order = {rec["site"]: i for i, rec in enumerate(records)}
+    charts = sorted(
+        (item for item in charts if item["touch"]),
+        key=lambda item: order[item["site"]],
+    ) + [item for item in charts if not item["touch"]]
+    chart_index = {item["site"]: i for i, item in enumerate(charts)}
+    n_double = sum(1 for rec in records if rec.get("double_check"))
+    print(f"Double Check (gap ≥ {GAP_MIN * 100:.0f}%): {n_double}", flush=True)
     geo, tech_by_code, type_by_code = load_physical()
     attach_site_identity(charts, tech_by_code, type_by_code)
     busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
@@ -1985,6 +2070,7 @@ def write_workbook(
         4, 0, 4, 17,
         "Each dot is one physical site (the first 7 characters of the ERBS). "
         "Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate. "
+        "Double Check stays on that peak-touch grade here. "
         f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
         styles["note"],
     )
@@ -1998,7 +2084,7 @@ def write_workbook(
         touch = item["touch"]
         rec = {
             "site": item["site"],
-            "severity": touch["severity"] if touch else "—",
+            "severity": (touch.get("touch_severity") or touch["severity"]) if touch else "—",
             "hours_pct": float(touch["hours_pct"]) if touch else 0.0,
             "tech": item.get("tech") or fcc.TECH_4G,
             "site_type": item.get("site_type") or "Not found",
@@ -2062,9 +2148,10 @@ def main() -> None:
     print(f"Sites checked: {work['eNodeB Name'].nunique()}")
     print(f"Sites scored (≥{MIN_SAMPLES} samples, Peak ≥ {MIN_PEAK_MBPS:.0f}): "
           f"{work.loc[work['Peak'].notna(), 'eNodeB Name'].nunique()}")
-    print(f"Listed (touch ≥ 20%): {len(records)}")
+    print(f"Listed (peak ratio ≥ 20%): {len(records)}")
     for name, floor in SEVERITY_BANDS:
         print(f"  {name} (≥{floor:.0f}%): {by_sev[name]}")
+    print(f"  {SEV_DOUBLE} (gap ≥ {GAP_MIN * 100:.0f}%): {by_sev[SEV_DOUBLE]}")
     print("Where touched:")
     for name in fcc.CAP_WHEN_COLS:
         print(f"  {name}: {by_when[name]}")

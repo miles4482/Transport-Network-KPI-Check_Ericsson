@@ -27,7 +27,8 @@ Runner: `scripts/fege_peak_touch_ericsson.py`. Counter: only `Max DL Capacity Us
 - **Peak** = the highest hourly value of the window (the red Peak line on each chart).
 - **Below5%Peak** = Peak × 95%. An hour **touches** when Max DL is at or above Below5%Peak (within 5% below the Peak, the orange line). Below5%Peak is one number, 5% under that site's own highest hour. It is not an average of the hours. v3–v9 called this line touch levelbelow5%.
 - **Touch ratio** = touch hours ÷ total hours with data for that site.
-- Severity from the touch ratio (v10): **Severe ≥ 60%**, **High 50% to under 60%**, **Medium 40% to under 50%**, **Low 20% to under 40%**. Under 20% is not listed. v3–v9 used Severe ≥ 70% and High 50% to under 70%.
+- Peak ratio = touch hours ÷ hours with data (an hour touches when Max DL is at or above Below5%Peak). Severity (v16): **Severe ≥ 50%**, **High 40% to under 50%**, **Medium 30% to under 40%**, **Low 20% to under 30%**. Under 20% is not listed. v10–v15 used Severe ≥ 60%, High 50% to under 60%, Medium 40% to under 50%, Low 20% to under 40%. v3–v9 used Severe ≥ 70% and High 50% to under 70%.
+- **Double Check** (v16): a listed site whose license is at least 30% above its Peak. Gap = (License − Peak) / License. The Severity column says Double Check, the Dashboard observation row comments **Suspected Tx Issues**, and the site stays on Dashboard, 1. Site List, and 2. HourlyChartOfIssueSites. The map keeps the underlying peak-touch grade.
 - Guards kept from section 4: at least 24 hourly samples and Peak ≥ 20 Mbit/s.
 - Busy-hour touch (08:00–22:00) and Where touched (Busy + off-peak / Busy hours / Off-peak) are shown as information; they do not change the grade.
 - Sort: severity, then touch ratio descending, then site name.

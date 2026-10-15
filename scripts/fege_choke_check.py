@@ -781,6 +781,14 @@ def _styles(book):
             bg_color=GREEN,
             font_color=GREEN_FONT,
         ),
+        "double": fmt(
+            border=1,
+            border_color=LINE,
+            align="center",
+            bold=True,
+            bg_color="#C6EFCE",
+            font_color="#006100",
+        ),
         "above": fmt(
             border=1,
             border_color=LINE,
