@@ -59,5 +59,8 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 |---|---|
 | `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
+| `FEGE_Choked_Flat_Sites_Ericsson_vN_Charts.html` | Web list of sheet 1. Site List. Click a site to open its hourly chart from sheet 2. Built from a published workbook; the workbook itself is not changed |
+
+Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_vN_Charts.html`
 
 Working files (`/tmp/.../OSS KPI Hourly site  level_capacity.csv`, combined cell CSVs, extracted RARs, `fege_report_cache.pkl`) are not committed.
