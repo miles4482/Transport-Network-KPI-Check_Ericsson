@@ -14,7 +14,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "22.3"
+HTML_VERSION = "22.4"
 FLAG_NAMES = (
     "DL Throughput<7Mbps",
     "Data Vol>50GB",
@@ -512,7 +512,7 @@ function draw() {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
-  const pad = { l: 58, r: 16, t: 16, b: 54 };
+  const pad = { l: 58, r: 16, t: 16, b: 72 };
   const plotW = width - pad.l - pad.r;
   const plotH = height - pad.t - pad.b;
   const packed = [];
@@ -534,16 +534,39 @@ function draw() {
     ctx.stroke();
     ctx.fillText(String(Math.round(y)), pad.l - 8, py);
   }
+  const axisBottom = pad.t + plotH;
+  ctx.strokeStyle = "#b0b0b0";
+  ctx.beginPath();
+  VIEW.labels.forEach((label, i) => {
+    const x = xAt(i);
+    ctx.moveTo(x, axisBottom);
+    ctx.lineTo(x, axisBottom + 4);
+  });
+  ctx.stroke();
+  ctx.fillStyle = "#595959";
+  ctx.font = "8px Calibri, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  VIEW.labels.forEach((label, i) => {
+    const time = label.slice(label.lastIndexOf(" ") + 1);
+    ctx.save();
+    ctx.translate(xAt(i), axisBottom + 40);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(time, 0, 0);
+    ctx.restore();
+  });
+  ctx.font = "11px Calibri, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
+  let dayStart = 0;
   VIEW.labels.forEach((label, i) => {
-    if (!label.endsWith("00:00") && !label.endsWith("12:00")) return;
-    const x = xAt(i);
-    ctx.save();
-    ctx.translate(x, pad.t + plotH + 8);
-    ctx.rotate(-Math.PI / 3);
-    ctx.fillText(label, 0, 0);
-    ctx.restore();
+    const date = label.slice(0, label.lastIndexOf(" "));
+    const next = VIEW.labels[i + 1];
+    const nextDate = next ? next.slice(0, next.lastIndexOf(" ")) : "";
+    if (date !== nextDate) {
+      ctx.fillText(date, (xAt(dayStart) + xAt(i)) / 2, axisBottom + 46);
+      dayStart = i + 1;
+    }
   });
   ctx.strokeStyle = "#b0b0b0";
   ctx.beginPath();
@@ -595,6 +618,14 @@ function showTip(event) {
   tip.style.left = Math.max(8, left) + "px";
   tip.style.top = Math.max(8, y + 12) + "px";
 }
+function legendName(spec, site) {
+  const num = value => value == null || value === "" ? null : Number(value).toFixed(2);
+  if (spec.key === "peak" && num(site.peak)) return `Peak (${num(site.peak)} Mbit/s)`;
+  if (spec.key === "level" && num(site.level)) return `Below5%Peak (${num(site.level)} Mbit/s)`;
+  if (spec.key === "license" && num(site.license)) return `License (${num(site.license)} Mbps)`;
+  if (spec.key === "threshold" && num(site.threshold)) return `85% of license (${num(site.threshold)} Mbps)`;
+  return spec.name;
+}
 function kpi(label, value, unit) {
   const shown = value == null || value === "" ? "—" : value;
   return `<div class="kpi"><b>${shown}${unit && shown !== "—" ? unit : ""}</b><span>${label}</span></div>`;
@@ -625,6 +656,11 @@ function renderChart() {
     const rows = ossNames.map((name, i) => `<div class="oss-row"><span>${name}</span><b>${values[i] == null ? "—" : values[i]}</b></div>`).join("");
     return `<section class="oss-block"><h2 style="background:${color}">${title}</h2>${rows}</section>`;
   }
+  document.querySelectorAll("#legend .leg-name").forEach(node => {
+    const key = node.parentElement.querySelector("input").dataset.key;
+    const spec = SERIES.find(item => item.key === key);
+    node.textContent = legendName(spec, site);
+  });
   document.getElementById("oss").innerHTML = [
     ossBlock("DataBusyHour (1 BusyHour)", "#6C3483", ossPair && ossPair[0]),
     ossBlock("UserBusyHour (1 BusyHour)", "#1A5276", ossPair && ossPair[1])
@@ -716,9 +752,9 @@ document.getElementById("chart").addEventListener("mouseleave", () => {
   document.getElementById("tip").style.display = "none";
 });
 window.addEventListener("resize", draw);
-document.getElementById("legend").innerHTML = SERIES.map(spec => `
+  document.getElementById("legend").innerHTML = SERIES.map(spec => `
   <label><input type="checkbox" data-key="${spec.key}" checked>
-  <i class="swatch ${spec.dash ? "dash" : ""}" style="border-top-color:${spec.color}"></i>${spec.name}</label>`).join("");
+  <i class="swatch ${spec.dash ? "dash" : ""}" style="border-top-color:${spec.color}"></i><span class="leg-name">${spec.name}</span></label>`).join("");
 document.getElementById("legend").addEventListener("change", event => {
   const key = event.target.dataset.key;
   if (!key) return;
