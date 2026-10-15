@@ -59,10 +59,10 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 |---|---|
 | `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
-| `FEGE_Choked_Flat_Sites_Ericsson_vN_Charts.html` | Web list of sheet 1. Site List. Click a site to open its hourly chart from sheet 2. Built from a published workbook; the workbook itself is not changed |
-| `FEGE_Choked_Flat_Sites_Ericsson_vN_Charts.zip` | The same chart page, zipped so it can be downloaded. Unzip it and open the `.html` file in a browser. GitHub shows the raw `.html` as plain text, so that link does not run the page. The All Sites tab lists every ERBS in the FEG window; the other tabs stay on the issue list. Under the site cards, the page shows OSS DataBusyHour (1 BusyHour) and UserBusyHour (1 BusyHour): DL Throughput, DLPRBUtilization, Data Volume, Max User, and Mean User. The Excel report is not changed |
+| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.html` | Web chart page. The Excel workbook stays `v22`. HTML versions move on their own: 22.1 chart list, 22.2 All Sites tab, 22.3 OSS 1h blocks. Open the latest, 22.3 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
 
-Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_vN_Charts.html`
+Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v22.3_Charts.html`
 
 The workbook is about 70 MB. GitHub’s file page will not download it (“we can’t show files that are this big”). Use the `raw.githubusercontent.com` link for that file.
 

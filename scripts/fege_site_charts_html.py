@@ -14,6 +14,7 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
+HTML_VERSION = "22.3"
 FLAG_NAMES = (
     "DL Throughput<7Mbps",
     "Data Vol>50GB",
@@ -289,7 +290,7 @@ HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hourly charts — Site List</title>
+<title>Hourly charts — HTML __HTML_VERSION__</title>
 <style>
   :root {
     --navy: #1F4E79;
@@ -411,7 +412,7 @@ HTML = r"""<!DOCTYPE html>
 <body>
 <aside>
   <header>
-    <h1>1. Site List</h1>
+    <h1>1. Site List · HTML __HTML_VERSION__</h1>
     <p class="sub" id="period"></p>
   </header>
   <div class="tools">
@@ -739,7 +740,8 @@ renderChart();
 
 def write_html(view: dict, dest: Path) -> None:
     payload = json.dumps(view, separators=(",", ":")).replace("<", "\\u003c")
-    dest.write_text(HTML.replace("__DATA__", payload), encoding="utf-8")
+    page = HTML.replace("__DATA__", payload).replace("__HTML_VERSION__", view.get("htmlVersion", HTML_VERSION))
+    dest.write_text(page, encoding="utf-8")
 
 
 def main() -> None:
@@ -751,6 +753,7 @@ def main() -> None:
     parser.add_argument("--geo", default="Physical_Site_Database_14Oct26.xlsx")
     args = parser.parse_args()
     view = load_chart_view(Path(args.workbook))
+    view["htmlVersion"] = HTML_VERSION
     view["oss"] = load_oss_1h(Path(args.workbook))
     print(f"OSS 1h site codes: {len(view['oss']):,}", flush=True)
     feg_path = Path(args.feg)
