@@ -25,7 +25,7 @@ Gap = (License - Peak) / License.
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
 Peak of at least 20 Mbit/s to be scored.
 
-Sheets written: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites
+Sheets written: Dashboard, 1. Site List_ERBS, 2. HourlyChartOfIssueSites
 (with hidden _ChartData), 3. Hourly KPI, 5. GeoPlot.
 """
 
@@ -46,8 +46,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v26.xlsx"
-SITE_LIST_SHEET = "1. Site List"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v27.xlsx"
+SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
 LEVEL_SITE = "Site"
@@ -1852,8 +1852,8 @@ def prepare_oss(
     charts: list[dict],
     tech_by_code: dict[str, str],
     type_by_code: dict[str, str],
-) -> tuple[list[dict], list[str], str, dict[str, dict]]:
-    """Score 7/4/1 busy hours. Returns busy rows, missing-FEG codes, a note, and ERBS TP bins."""
+) -> tuple[list[dict], list[str], str, dict[str, dict], dict[str, str]]:
+    """Score 7/4/1 busy hours. Returns busy rows, missing-FEG codes, a note, ERBS TP bins, and site bands."""
     oss = load_ericsson_oss()
     start = pd.Timestamp(oss["Date"].min())
     end = pd.Timestamp(oss["Date"].max())
@@ -1895,8 +1895,8 @@ def prepare_oss(
         flush=True,
     )
     erbs_names = set(work["eNodeB Name"].astype(str).str.strip())
-    erbs_tp = attach_tp_cell_counts(busy, erbs_names)
-    return busy, missing, note, erbs_tp
+    erbs_tp, site_bands = attach_tp_cell_counts(busy, erbs_names)
+    return busy, missing, note, erbs_tp, site_bands
 
 
 CELL_TP_CACHE = Path("/tmp/eric_oss_cell_tp_v26.pkl")
@@ -1985,13 +1985,11 @@ def cell_band_label(name: str) -> str:
 
 
 def erbs_band_text(bands: set[str]) -> str:
-    """One band is 'L09 Cells'. Several bands are 'L18+L21+L26 cells'."""
+    """One band is 'L09'. Several bands are 'L09+L18+L21+L26'."""
     ordered = [band for band in BAND_ORDER if band in bands]
     if not ordered:
         return "—"
-    if len(ordered) == 1:
-        return f"{ordered[0]} Cells"
-    return "+".join(ordered) + " cells"
+    return "+".join(ordered)
 
 
 def _owners_for_site(site: str, nodes: list[str], cell_names: list[str]) -> dict[str, list[str]]:
@@ -2044,14 +2042,16 @@ def _empty_erbs_pack() -> dict:
     return pack
 
 
-def attach_tp_cell_counts(busy_rows: list[dict], erbs_names: set[str]) -> dict[str, dict]:
+def attach_tp_cell_counts(
+    busy_rows: list[dict], erbs_names: set[str]
+) -> tuple[dict[str, dict], dict[str, str]]:
     """Site bins include every cell. ERBS bins include only that ERBS's cells.
 
     L900 is included here. The OSS KPI blocks are unchanged.
     """
     erbs_tp = {name: _empty_erbs_pack() for name in erbs_names}
     if not busy_rows:
-        return erbs_tp
+        return erbs_tp, {}
     cells = load_cell_throughput()
     unique = cells[["site", "cell"]].drop_duplicates()
     nodes_by: dict[str, list[str]] = defaultdict(list)
@@ -2059,13 +2059,16 @@ def attach_tp_cell_counts(busy_rows: list[dict], erbs_names: set[str]) -> dict[s
         nodes_by[name[:7]].append(name)
     owned_rows: list[tuple[str, str, str]] = []
     bands: dict[str, set[str]] = defaultdict(set)
+    site_band_sets: dict[str, set[str]] = defaultdict(set)
     for site, group in unique.groupby("site", sort=False):
         mapping = _owners_for_site(site, nodes_by.get(site, []), group["cell"].tolist())
         for cell, owners in mapping.items():
             band = cell_band_label(cell)
+            site_band_sets[site].add(band)
             for erbs in owners:
                 owned_rows.append((cell, erbs, band))
                 bands[erbs].add(band)
+    site_bands = {site: erbs_band_text(held) for site, held in site_band_sets.items()}
     for erbs, held in bands.items():
         if erbs in erbs_tp:
             erbs_tp[erbs]["band"] = erbs_band_text(held)
@@ -2123,7 +2126,9 @@ def attach_tp_cell_counts(busy_rows: list[dict], erbs_names: set[str]) -> dict[s
                 f"  {sample} band {pack['band']} · data4 cells {sum(pack['data4'])}",
                 flush=True,
             )
-    return erbs_tp
+    if "CGPTA90" in site_bands:
+        print(f"  site CGPTA90 band {site_bands['CGPTA90']}", flush=True)
+    return erbs_tp, site_bands
 
 
 def _bh_yes(values: tuple[float, float], test) -> str | None:
@@ -2186,8 +2191,9 @@ TP_NOTE = (
     "L09 cells belong to the ERBS that equals the site code when that ERBS exists. "
     "L18, L21, and L26 cells belong to the ERBS that is the site code plus L when that ERBS exists. "
     "An ERBS that is the only node keeps every cell. The site row counts each cell once. "
-    "ERBS Band is on 1. Site List. "
-    "CGPTA90 is L09 Cells. CGPTA90L is L18+L21+L26 cells. The site counts both."
+    "ERBS Band on 1. Site List_ERBS is the bands of that ERBS. "
+    "Band on 1. Site List_SiteLevel is every band at the site, from MID(EUtranCell Id, 8, 3). "
+    "CGPTA90 is L09. CGPTA90L is L18+L21+L26. Site CGPTA90 is L09+L18+L21+L26."
 )
 
 
@@ -2218,6 +2224,7 @@ def write_site_list(
     intro: str | None = None,
     tab_color: str = "#375623",
     erbs_tp: dict[str, dict] | None = None,
+    site_bands: dict[str, str] | None = None,
 ) -> None:
     """Issue sites from the Dashboard. Tech, Site Type, and OSS 4H/1H are filled."""
     ws = book.add_worksheet(sheet_name)
@@ -2225,10 +2232,11 @@ def write_site_list(
     ws.set_footer("&L&8OSS 4H/1H from the cell KPI, rolled to the first 7 characters of the ERBS&R&8Page &P of &N")
     ws.set_tab_color(tab_color)
     use_pct = f"{LICENSE_USE * 100:.0f}"
+    band_title = "ERBS Band" if erbs_tp is not None else ("Band" if site_bands is not None else None)
     show_band = erbs_tp is not None
     left = ["No.", name_header, "Tech", "Site Type", "Category", "Severity"]
-    if show_band:
-        left = ["No.", name_header, "Tech", "Site Type", "ERBS Band", "Category", "Severity"]
+    if band_title:
+        left = ["No.", name_header, "Tech", "Site Type", band_title, "Category", "Severity"]
     bh_flag = [
         "DL Throughput<7Mbps",
         "Data Vol>50GB",
@@ -2249,8 +2257,8 @@ def write_site_list(
         f"Where ≥{use_pct}%",
     ]
     widths = [8, 16, 12, 14, 28, 16, 22, 16, 22, 16, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18]
-    if show_band:
-        widths = widths[:4] + [26] + widths[4:]
+    if band_title:
+        widths = widths[:4] + [22] + widths[4:]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     bh_start = len(left)
@@ -2304,7 +2312,7 @@ def write_site_list(
         }
     )
     for c, text in enumerate(left):
-        fmt = band_header if text == "ERBS Band" else styles["header"]
+        fmt = band_header if text == "Band" else styles["header"]
         ws.merge_range(header_row, c, header_row + 1, c, text, fmt)
     for c, text in enumerate(right):
         ws.merge_range(header_row, right_start + c, header_row + 1, right_start + c, text, styles["header"])
@@ -2427,9 +2435,12 @@ def write_site_list(
         ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
         ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
         identity = 4
-        if show_band:
+        if band_title == "ERBS Band":
             pack = (erbs_tp or {}).get(item["site"]) or {}
             ws.write_string(row, 4, pack.get("band") or "—", cfmt)
+            identity = 5
+        elif band_title == "Band":
+            ws.write_string(row, 4, (site_bands or {}).get(item["site"]) or "—", cfmt)
             identity = 5
         ws.write_string(row, identity, _listed_because(item), tfmt)
         sev_style = SEVERITY_STYLE.get(severity)
@@ -3043,7 +3054,7 @@ def write_workbook(
     attach_site_identity(charts, tech_by_code, type_by_code)
     if site_charts:
         attach_site_identity(site_charts, tech_by_code, type_by_code)
-    busy_rows, missing_feg, oss_note, erbs_tp = prepare_oss(
+    busy_rows, missing_feg, oss_note, erbs_tp, site_bands = prepare_oss(
         work, charts, tech_by_code, type_by_code
     )
     busy_by_code = {row["site"]: row for row in busy_rows}
@@ -3082,8 +3093,11 @@ def write_workbook(
                 "DL PRB = (Num/Denom) × 100. "
                 "BH Flag 1H uses those same 1h blocks. "
                 "The name links to the Site chart on 2. HourlyChartOfIssueSites. "
+                "Band is every layer at the site. The layer is MID(EUtranCell Id, 8, 3): "
+                "L09, L21, L26, and L18 for every other cell. "
                 + TP_NOTE
             ),
+            site_bands=site_bands,
         )
     all_charts = charts + site_charts
     work_by_level = {LEVEL_ERBS: work}
