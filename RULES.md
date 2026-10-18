@@ -101,6 +101,17 @@ On `1. Site List` and `1. Site List_SiteLevel`, each of the four OSS blocks (Dat
 
 A cell is counted once for that block. Its DL throughput is Num/Denom summed over the block's busy hours. ≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The middle bins do not overlap. L900 cells are dropped, the same cells behind the block's DL throughput. The cell's site is the first 7 characters of `EUtranCell Id`. Each ERBS of a site shows that site's cell counts, because the cell name does not carry the B01 / _01 node id. The chart-page HTML is not rebuilt.
 
+### v25 TP Range beside the chart
+
+Site busy hours are the cell busy hours. Over 11–13 Oct (3 dates):
+
+- 1 BusyHour: the top hour on each date, 3 hours in total. Data uses data volume. User uses max user.
+- 4 BusyHour: the top 4 hours on each date, 12 hours in total.
+
+For each capacity cell, DL throughput = sum of `Average User Throughput in DownLink (Mbps)_Num` / sum of `_Denom` over those hours. The cell goes into one of the eight bins, and the column is the count of cells.
+
+`2. HourlyChartOfIssueSites` keeps the OSS KPI table, then adds two tables to its right. The left table is Data 4H over Data 1H. The right table is User 4H over User 1H. Columns are Busy Hour, TP Range, Mbps, and Cell Count. An ERBS chart and its Site chart show the same counts, because both use the 7-character site. HTML is not rebuilt.
+
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.

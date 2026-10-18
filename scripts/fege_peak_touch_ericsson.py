@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v24.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v25.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -1995,7 +1995,14 @@ def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
         for row in busy_rows:
             row[f"tp_bins_{prefix}"] = counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
         filled = sum(1 for row in busy_rows if sum(row[f"tp_bins_{prefix}"]) > 0)
-        print(f"TP Range {prefix}: {filled:,} sites with a cell count", flush=True)
+        # 11–13 Oct is 3 dates. 1 BusyHour is 1 top hour × 3 dates. 4 BusyHour is 4 × 3.
+        expected = 12 if prefix.endswith("4") else 3
+        matched = sum(1 for row in busy_rows if len(row.get(f"{prefix}_picked") or []) == expected)
+        print(
+            f"TP Range {prefix}: {expected} busy hours (top hours × 3 dates) "
+            f"on {matched:,} of {len(busy_rows):,} sites · {filled:,} sites with a cell count",
+            flush=True,
+        )
 
 
 def _bh_yes(values: tuple[float, float], test) -> str | None:
@@ -2049,10 +2056,14 @@ TP_RANGE_TITLE = "TP Range in Mbps (Sum of Cell Count)"
 TP_RANGE_LABELS = ("≤3", "3–4", "4–5", "5–7", "7–8", "8–9", "9–10", "≥10")
 TP_NOTE = (
     "TP Range counts capacity cells (L900 dropped). "
-    "A cell's DL throughput is Num/Denom summed over that block's busy hours. "
+    "The cell uses the site's busy hours. "
+    "1 BusyHour is the top hour on each of the 3 dates (3 hours). "
+    "4 BusyHour is the top 4 hours on each of the 3 dates (12 hours). "
+    "DL throughput is the sum of Num divided by the sum of Denom over those hours, then one bin. "
     "≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The bins between them do not overlap. "
     "The cell's site is the first 7 characters of EUtranCell Id, so every ERBS of a site "
-    "shows that site's cell counts."
+    "shows that site's cell counts. "
+    "The same counts are on 2. HourlyChartOfIssueSites, to the right of the OSS KPI table."
 )
 
 
@@ -2338,13 +2349,13 @@ def write_site_list(
 
 
 def _oss_side_formats(book) -> dict:
-    def _fmt(bg: str, *, num: bool = False, hour: bool = False):
+    def _fmt(bg: str, *, num: bool = False, hour: bool = False, center: bool = False):
         spec = {
             "font_name": "Calibri",
             "bold": True,
             "font_size": 9 if not hour else 10,
             "font_color": "white",
-            "align": "center" if hour or num else "left",
+            "align": "center" if hour or num or center else "left",
             "valign": "vcenter",
             "bg_color": bg,
             "border": 1,
@@ -2381,7 +2392,82 @@ def _oss_side_formats(book) -> dict:
         "user1": _fmt("#1A5276"),
         "user1_num": _fmt("#1A5276", num=True),
         "user1_hour": _fmt("#1A5276", hour=True),
+        "tp_head": book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 10,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#7F6000",
+                "border": 1,
+                "border_color": "white",
+                "text_wrap": True,
+            }
+        ),
+        "tp_4h": _fmt("#C9A227", center=True),
+        "tp_4h_hour": _fmt("#C9A227", hour=True),
+        "tp_1h": _fmt("#8B6914", center=True),
+        "tp_1h_hour": _fmt("#8B6914", hour=True),
+        "tp_count": book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 10,
+                "font_color": "#1F1F1F",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "white",
+                "border": 1,
+                "border_color": "#D9D9D9",
+                "num_format": "0",
+            }
+        ),
     }
+
+
+def _chart_tp_range_table(ws, top: int, busy: dict, formats: dict) -> None:
+    """Cell-count table just to the right of the OSS KPI block.
+
+    Data blocks sit in the left table, User blocks in the right table.
+    Each table stacks the 4H block on the 1H block.
+    """
+    header = top + 4
+    sides = (
+        (
+            16,
+            (
+                ("4H\n(Data Busy hour)", "data4", "4h"),
+                ("1H\n(Data Busy hour)", "data1", "1h"),
+            ),
+        ),
+        (
+            20,
+            (
+                ("4H\n(User Busy hour)", "user4", "4h"),
+                ("1H\n(User Busy hour)", "user1", "1h"),
+            ),
+        ),
+    )
+    for col, blocks in sides:
+        ws.write(header, col, "Busy Hour", formats["tp_head"])
+        ws.write(header, col + 1, "TP Range, Mbps", formats["tp_head"])
+        ws.write(header, col + 2, "Cell Count", formats["tp_head"])
+        row = header + 1
+        for label, prefix, kind in blocks:
+            ws.merge_range(
+                row, col, row + len(TP_RANGE_LABELS) - 1, col, label, formats[f"tp_{kind}_hour"]
+            )
+            bins = busy.get(f"tp_bins_{prefix}")
+            for offset, bin_label in enumerate(TP_RANGE_LABELS):
+                ws.write(row + offset, col + 1, bin_label, formats[f"tp_{kind}"])
+                value = None if not bins else bins[offset]
+                if value is None:
+                    ws.write_blank(row + offset, col + 2, None, formats["tp_count"])
+                else:
+                    ws.write_number(row + offset, col + 2, int(value), formats["tp_count"])
+            row += len(TP_RANGE_LABELS)
 
 
 def write_issue_snapshots(
@@ -2413,6 +2499,14 @@ def write_issue_snapshots(
     ws.set_column(12, 12, 20)
     ws.set_column(13, 13, 28)
     ws.set_column(14, 14, 12)
+    ws.set_column(15, 15, 3)
+    ws.set_column(16, 16, 18)
+    ws.set_column(17, 17, 16)
+    ws.set_column(18, 18, 12)
+    ws.set_column(19, 19, 3)
+    ws.set_column(20, 20, 18)
+    ws.set_column(21, 21, 16)
+    ws.set_column(22, 22, 12)
     side_formats = _oss_side_formats(book)
     busy_by_code = busy_by_code or {}
     block = fcc.BLOCK_ROWS
@@ -2597,7 +2691,9 @@ def write_issue_snapshots(
         )
         chart.set_size({"width": 1200, "height": 410})
         ws.insert_chart(top + 4, 0, chart, {"x_offset": 6, "y_offset": 6, "object_position": 2})
-        fcc._chart_side_table(ws, top, busy_by_code.get(item.get("site_code", ""), {}), side_formats)
+        busy = busy_by_code.get(item.get("site_code", ""), {})
+        fcc._chart_side_table(ws, top, busy, side_formats)
+        _chart_tp_range_table(ws, top, busy, side_formats)
         for rr in range(top + 4, top + block):
             ws.set_row(rr, 16)
     if charts:
