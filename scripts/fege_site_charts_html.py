@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""HTML chart browser for sheet 1. Site List / 2. HourlyChartOfIssueSites.
+"""HTML chart browser for the v28 ERBS and Site Level lists.
 
-Reads a published workbook and writes one HTML file. The Excel report is not modified.
+Reads a published workbook and writes one HTML file with two tabs.
+ERBS shows 1. Site List_ERBS. SiteLevel shows 1. Site List_SiteLevel.
+The Excel report is not modified.
 """
 
 from __future__ import annotations
@@ -14,8 +16,48 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "22.6"
-EXCEL_VERSION = "v22"
+HTML_VERSION = "28"
+EXCEL_VERSION = "v28"
+# Band sits after Site Type, so every later Site List column is one place to the right of v22.
+COL_N = 0
+COL_NAME = 1
+COL_TECH = 2
+COL_TYPE = 3
+COL_BAND = 4
+COL_CATEGORY = 5
+COL_SEVERITY = 6
+COL_FLAG0 = 7
+COL_PEAK = 11
+COL_LEVEL = 12
+COL_TOUCH = 13
+COL_HOURS = 14
+COL_RATIO = 15
+COL_WHERE = 16
+COL_LICENSE = 17
+COL_GAP = 18
+HOURLY_LEVEL_COL = 10
+TABS = (
+    {
+        "id": "ERBS",
+        "sheet": "1. Site List_ERBS",
+        "level": "ERBS",
+        "label": "ERBS",
+        "bandLabel": "ERBS Band",
+        "listTitle": "1. Site List_ERBS",
+        "search": "Search ERBS, tech, severity",
+        "hint": "Each chart is one ERBS. Max DL is that ERBS.",
+    },
+    {
+        "id": "SiteLevel",
+        "sheet": "1. Site List_SiteLevel",
+        "level": "Site",
+        "label": "SiteLevel",
+        "bandLabel": "Band",
+        "listTitle": "1. Site List_SiteLevel",
+        "search": "Search site, tech, severity",
+        "hint": "Each chart is one site. Max DL is the sum of its ERBS for that hour. License is the sum of dlBbCapacityNet.",
+    },
+)
 FLAG_NAMES = (
     "DL Throughput<7Mbps",
     "Data Vol>50GB",
@@ -67,47 +109,83 @@ def _round(value: float | None, digits: int = 2):
     return round(value, digits)
 
 
-def load_chart_view(path: Path) -> dict:
-    book = load_workbook(path, read_only=True, data_only=True)
-    sites_ws = book["1. Site List"]
+def _listed_site(row) -> dict | None:
+    if not isinstance(row[COL_N], (int, float)):
+        return None
+    license_mbps = _num(row[COL_LICENSE])
+    return {
+        "n": int(row[COL_N]),
+        "site": _text(row[COL_NAME]),
+        "tech": _text(row[COL_TECH]),
+        "siteType": _text(row[COL_TYPE]),
+        "band": _text(row[COL_BAND]),
+        "category": _text(row[COL_CATEGORY]),
+        "severity": _text(row[COL_SEVERITY]),
+        "flags": [_text(row[COL_FLAG0 + offset]) for offset in range(4)],
+        "peak": _round(_num(row[COL_PEAK])),
+        "level": _round(_num(row[COL_LEVEL])),
+        "touchHours": _num(row[COL_TOUCH]),
+        "totalHours": _num(row[COL_HOURS]),
+        "ratio": _round(_num(row[COL_RATIO]), 1),
+        "where": _text(row[COL_WHERE]),
+        "license": _round(license_mbps),
+        "threshold": _round(license_mbps * 0.85) if license_mbps else None,
+        "gap": _round(_num(row[COL_GAP]), 1),
+        "listed": True,
+    }
+
+
+def _read_listed(ws) -> tuple[str, list[dict]]:
     period = ""
     sites = []
-    for row in sites_ws.iter_rows(min_row=1, max_col=18, values_only=True):
-        if row[0] == "No.":
+    for row in ws.iter_rows(min_row=1, max_col=COL_GAP + 1, values_only=True):
+        if row[COL_N] == "No.":
             continue
-        if isinstance(row[0], str) and not period and "Oct" in row[0]:
-            period = row[0].split(".", 1)[0].strip()
-        if not isinstance(row[0], (int, float)):
-            continue
-        license_mbps = _num(row[16])
-        sites.append(
-            {
-                "n": int(row[0]),
-                "site": _text(row[1]),
-                "tech": _text(row[2]),
-                "siteType": _text(row[3]),
-                "category": _text(row[4]),
-                "severity": _text(row[5]),
-                "flags": [_text(row[6]), _text(row[7]), _text(row[8]), _text(row[9])],
-                "peak": _round(_num(row[10])),
-                "level": _round(_num(row[11])),
-                "touchHours": _num(row[12]),
-                "totalHours": _num(row[13]),
-                "ratio": _round(_num(row[14]), 1),
-                "where": _text(row[15]),
-                "license": _round(license_mbps),
-                "threshold": _round(license_mbps * 0.85) if license_mbps else None,
-                "gap": _round(_num(row[17]), 1),
-                "listed": True,
-            }
-        )
-    by_site = {item["site"]: item for item in sites}
+        if isinstance(row[COL_N], str) and not period and "Oct" in row[COL_N]:
+            period = row[COL_N].split(".", 1)[0].strip()
+        item = _listed_site(row)
+        if item and item["site"]:
+            sites.append(item)
+    return period, sites
+
+
+def load_chart_view(path: Path) -> dict:
+    print(f"Reading {path.name}", flush=True)
+    book = load_workbook(path, read_only=True, data_only=True)
+    missing = [spec["sheet"] for spec in TABS if spec["sheet"] not in book.sheetnames]
+    if missing or "3. Hourly KPI" not in book.sheetnames:
+        book.close()
+        raise SystemExit(f"Workbook is missing {', '.join(missing + ['3. Hourly KPI'])}")
+    period = ""
+    tabs: dict[str, dict] = {}
+    by_level: dict[str, dict[str, dict]] = {}
+    for spec in TABS:
+        sheet_period, sites = _read_listed(book[spec["sheet"]])
+        period = period or sheet_period
+        tabs[spec["id"]] = {
+            "label": spec["label"],
+            "bandLabel": spec["bandLabel"],
+            "listTitle": spec["listTitle"],
+            "search": spec["search"],
+            "hint": spec["hint"],
+            "sites": sites,
+        }
+        by_level[spec["level"]] = {item["site"]: item for item in sites}
+        print(f"{spec['sheet']}: {len(sites):,} listed", flush=True)
     hourly = book["3. Hourly KPI"]
     hours: set[tuple[datetime, int]] = set()
-    series: dict[str, dict[tuple[datetime, int], float | None]] = {item["site"]: {} for item in sites}
-    for row in hourly.iter_rows(min_row=1, max_col=8, values_only=True):
+    series: dict[str, dict[str, dict[tuple[datetime, int], float | None]]] = {
+        level: {name: {} for name in names} for level, names in by_level.items()
+    }
+    kept = 0
+    for row in hourly.iter_rows(min_row=1, max_col=HOURLY_LEVEL_COL + 1, values_only=True):
+        level = _text(row[HOURLY_LEVEL_COL])
+        bucket = series.get(level)
+        if bucket is None:
+            continue
         site = _text(row[2])
-        if site not in by_site:
+        values = bucket.get(site)
+        if values is None:
             continue
         day = _as_date(row[0])
         hour = _as_hour(row[1])
@@ -115,14 +193,17 @@ def load_chart_view(path: Path) -> dict:
             continue
         key = (day, hour)
         hours.add(key)
-        series[site][key] = _round(_num(row[3]))
+        values[key] = _round(_num(row[3]))
+        kept += 1
     book.close()
     axis = sorted(hours)
     labels = [f"{day.day}/{day.strftime('%b')} {hour:02d}:00" for day, hour in axis]
-    for item in sites:
-        values = series[item["site"]]
-        item["rx"] = [values.get(key) for key in axis]
-    return {"period": period, "labels": labels, "flagNames": list(FLAG_NAMES), "sites": sites}
+    for level, names in by_level.items():
+        for item in names.values():
+            values = series[level][item["site"]]
+            item["rx"] = [values.get(key) for key in axis]
+    print(f"Hourly rows kept: {kept:,} · {len(labels)} hours", flush=True)
+    return {"period": period, "labels": labels, "flagNames": list(FLAG_NAMES), "tabs": tabs}
 
 
 OSS_1H_NAMES = (
@@ -186,8 +267,59 @@ def _axis_keys(labels: list[str], year: int) -> list[tuple]:
     return keys
 
 
+def _extra_site(name, code, group, axis_pos, n_hours, license_mbps, tech_of, type_of, fcc, np):
+    series = [None] * n_hours
+    hours = group["hour"].to_numpy()
+    values = group["rx"].to_numpy(dtype=float)
+    days = group["date"].to_numpy()
+    finite_mask = np.isfinite(values)
+    for day, hour, value, ok in zip(days, hours, values, finite_mask):
+        pos = axis_pos.get((day, int(hour)))
+        if pos is None:
+            continue
+        series[pos] = round(float(value), 2) if ok else None
+    finite = values[finite_mask]
+    peak = float(np.max(finite)) if len(finite) else None
+    level = peak * 0.95 if peak is not None else None
+    touch = finite_mask & (values >= level) if level is not None else finite_mask & False
+    hours_n = int(finite_mask.sum())
+    hours_on = int(touch.sum())
+    busy_mask = (hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END)
+    busy = busy_mask & touch
+    off = touch & ~busy_mask
+    gap = None
+    if license_mbps and peak:
+        gap = round((license_mbps - peak) / license_mbps * 100.0, 1)
+    return {
+        "n": None,
+        "site": name,
+        "tech": tech_of.get(code, "4G"),
+        "siteType": type_of.get(code, "Not found"),
+        "band": "",
+        "category": "",
+        "severity": "",
+        "flags": ["", "", "", ""],
+        "peak": round(peak, 2) if peak is not None else None,
+        "level": round(level, 2) if level is not None else None,
+        "touchHours": hours_on,
+        "totalHours": hours_n,
+        "ratio": round(100.0 * hours_on / hours_n, 1) if hours_n else None,
+        "where": fcc.cap_window(int(busy.sum()), int(off.sum())) if hours_on else "",
+        "license": round(license_mbps, 2) if license_mbps else None,
+        "threshold": round(license_mbps * 0.85, 2) if license_mbps else None,
+        "gap": gap,
+        "rx": series,
+        "listed": False,
+    }
+
+
 def add_all_sites(view: dict, feg_path: Path, license_path: Path, geo_path: Path) -> None:
-    """Append every ERBS from the FEG window. Issue sites already on the list stay as they are."""
+    """Append every ERBS, and every Site Name, from the FEG window.
+
+    A name already on that tab's issue list keeps the Excel row.
+    Site Name is the first 7 characters. Site Max DL is the sum of the ERBS
+    values for that date and hour. Site license is the sum of dlBbCapacityNet.
+    """
     import sys
 
     import numpy as np
@@ -203,28 +335,44 @@ def add_all_sites(view: dict, feg_path: Path, license_path: Path, geo_path: Path
             year = int(token)
     axis = _axis_keys(view["labels"], year)
     axis_pos = {key: index for index, key in enumerate(axis)}
-    known = {item["site"] for item in view["sites"]}
+    window_days = {day for day, _hour in axis}
 
     raw = eric.load_ericsson(feg_path)
+    erbs = raw[eric.ERIC_SITE_COL].astype(str).str.strip()
     frame = pd.DataFrame(
         {
-            "site": raw[eric.ERIC_SITE_COL].astype(str).str.strip(),
+            "site": erbs,
+            "code": erbs.str[:7],
             "date": pd.to_datetime(fcc.parse_kpi_date(raw["Date"])).dt.date,
-            "hour": raw["Hour"].astype(int),
+            "hour": pd.to_numeric(raw["Hour"], errors="coerce"),
             "rx": pd.to_numeric(raw[eric.ERIC_DL_COL], errors="coerce"),
         }
     )
-    frame = frame[frame["date"].isin({day for day, _hour in axis})]
-    frame = frame.drop_duplicates(["site", "date", "hour"], keep="last")
+    frame = frame.dropna(subset=["date", "hour"])
+    frame = frame[frame["date"].isin(window_days)]
+    frame = frame.loc[~frame["site"].str.lower().isin(["", "nan", "none"])]
+    frame["hour"] = frame["hour"].astype(int)
+    frame = frame.sort_values(["site", "date", "hour"]).drop_duplicates(
+        ["site", "date", "hour"], keep="last"
+    )
 
     license_of: dict[str, float] = {}
+    site_license_of: dict[str, float] = {}
     if license_path.exists():
         lic = pd.read_excel(license_path, engine="pyxlsb")
+        node = lic["NodeId"].astype(str).str.strip()
         caps = pd.to_numeric(lic["dlBbCapacityNet"], errors="coerce")
+        lic_frame = pd.DataFrame({"node": node, "code": node.str[:7], "cap": caps})
+        lic_frame = lic_frame.loc[~lic_frame["node"].str.lower().isin(["", "nan", "none"])]
+        lic_frame = lic_frame.drop_duplicates("node", keep="last")
         license_of = {
-            str(node).strip(): float(cap)
-            for node, cap in zip(lic["NodeId"], caps)
+            node_id: float(cap)
+            for node_id, cap in zip(lic_frame["node"], lic_frame["cap"])
             if pd.notna(cap) and float(cap) > 0
+        }
+        summed = lic_frame.groupby("code")["cap"].sum(min_count=1)
+        site_license_of = {
+            code: float(cap) for code, cap in summed.items() if pd.notna(cap) and float(cap) > 0
         }
     tech_of: dict[str, str] = {}
     type_of: dict[str, str] = {}
@@ -233,57 +381,82 @@ def add_all_sites(view: dict, feg_path: Path, license_path: Path, geo_path: Path
         tech_of = fcc.tech_by_site_from_geo(geo)
         type_of = fcc.site_type_by_site_from_geo(geo)
 
-    added = 0
+    erbs_sites = view["tabs"]["ERBS"]["sites"]
+    known_erbs = {item["site"] for item in erbs_sites}
+    added_erbs = 0
     for site, group in frame.groupby("site", sort=True):
-        if site in known or not site:
+        if site in known_erbs or not site:
             continue
-        series = [None] * len(axis)
-        hours = group["hour"].to_numpy()
-        values = group["rx"].to_numpy(dtype=float)
-        days = group["date"].to_numpy()
-        finite_mask = np.isfinite(values)
-        for day, hour, value, ok in zip(days, hours, values, finite_mask):
-            pos = axis_pos.get((day, int(hour)))
-            if pos is None:
-                continue
-            series[pos] = round(float(value), 2) if ok else None
-        finite = values[finite_mask]
-        peak = float(np.max(finite)) if len(finite) else None
-        level = peak * 0.95 if peak is not None else None
-        touch = finite_mask & (values >= level) if level is not None else finite_mask & False
-        hours_n = int(finite_mask.sum())
-        hours_on = int(touch.sum())
-        busy = (hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END) & touch
-        off = touch & ~((hours >= fcc.BUSY_START) & (hours <= fcc.BUSY_END))
-        license_mbps = license_of.get(site)
-        code = site[:7]
-        gap = None
-        if license_mbps and peak:
-            gap = round((license_mbps - peak) / license_mbps * 100.0, 1)
-        view["sites"].append(
-            {
-                "n": None,
-                "site": site,
-                "tech": tech_of.get(code, "4G"),
-                "siteType": type_of.get(code, "Not found"),
-                "category": "",
-                "severity": "",
-                "flags": ["", "", "", ""],
-                "peak": round(peak, 2) if peak is not None else None,
-                "level": round(level, 2) if level is not None else None,
-                "touchHours": hours_on,
-                "totalHours": hours_n,
-                "ratio": round(100.0 * hours_on / hours_n, 1) if hours_n else None,
-                "where": fcc.cap_window(int(busy.sum()), int(off.sum())) if hours_on else "",
-                "license": round(license_mbps, 2) if license_mbps else None,
-                "threshold": round(license_mbps * 0.85, 2) if license_mbps else None,
-                "gap": gap,
-                "rx": series,
-                "listed": False,
-            }
+        erbs_sites.append(
+            _extra_site(
+                site, site[:7], group, axis_pos, len(axis),
+                license_of.get(site), tech_of, type_of, fcc, np,
+            )
         )
-        added += 1
-    print(f"All Sites: {len(view['sites']):,} ERBS ({added:,} not on 1. Site List)", flush=True)
+        added_erbs += 1
+    print(
+        f"All Sites ERBS: {len(erbs_sites):,} ({added_erbs:,} not on 1. Site List_ERBS)",
+        flush=True,
+    )
+
+    site_rows = view["tabs"]["SiteLevel"]["sites"]
+    known_sites = {item["site"] for item in site_rows}
+    grouped = frame.groupby(["code", "date", "hour"], as_index=False)["rx"].sum(min_count=1)
+    added_sites = 0
+    for code, group in grouped.groupby("code", sort=True):
+        if code in known_sites or not code:
+            continue
+        site_rows.append(
+            _extra_site(
+                code, code, group, axis_pos, len(axis),
+                site_license_of.get(code), tech_of, type_of, fcc, np,
+            )
+        )
+        added_sites += 1
+    print(
+        f"All Sites SiteLevel: {len(site_rows):,} ({added_sites:,} not on 1. Site List_SiteLevel)",
+        flush=True,
+    )
+    _check_examples(view, site_license_of)
+
+
+def _check_examples(view: dict, site_license_of: dict[str, float]) -> None:
+    """Confirm the v28 CGPTA90 split survived the HTML load."""
+    erbs = {item["site"]: item for item in view["tabs"]["ERBS"]["sites"]}
+    sites = {item["site"]: item for item in view["tabs"]["SiteLevel"]["sites"]}
+    bare = erbs.get("CGPTA90")
+    capacity = erbs.get("CGPTA90L")
+    site = sites.get("CGPTA90")
+    problems = []
+    if bare is None or bare.get("band") != "L09":
+        problems.append(f"CGPTA90 band {None if bare is None else bare.get('band')}")
+    if capacity is None or capacity.get("band") != "L18+L21+L26":
+        problems.append(f"CGPTA90L band {None if capacity is None else capacity.get('band')}")
+    if site is None or site.get("band") != "L09+L18+L21+L26":
+        problems.append(f"site CGPTA90 band {None if site is None else site.get('band')}")
+    if site is not None:
+        expected = site_license_of.get("CGPTA90")
+        if expected is not None and site.get("license") not in (None, round(expected, 2)):
+            problems.append(f"site CGPTA90 license {site.get('license')} vs summed {expected}")
+        if bare is not None and capacity is not None and bare.get("rx") and site.get("rx"):
+            short = 0
+            for left, right, total in zip(bare["rx"], capacity["rx"], site["rx"]):
+                parts = [value for value in (left, right) if value is not None]
+                if total is None or not parts:
+                    continue
+                if total + 0.05 < sum(parts):
+                    short += 1
+            if short:
+                problems.append(f"site Max DL below its ERBS on {short} hours")
+    heavy = sites.get("CGLHG01")
+    if heavy is not None and site_license_of.get("CGLHG01") == 1200 and heavy.get("license") not in (None, 1200, 1200.0):
+        problems.append(f"CGLHG01 license {heavy.get('license')}")
+    if problems:
+        raise SystemExit("v28 HTML check failed: " + "; ".join(problems))
+    print(
+        "Checked CGPTA90 L09, CGPTA90L L18+L21+L26, site band L09+L18+L21+L26",
+        flush=True,
+    )
 
 
 HTML = r"""<!DOCTYPE html>
@@ -312,9 +485,37 @@ HTML = r"""<!DOCTYPE html>
     background: var(--paper);
     display: grid;
     grid-template-columns: 248px 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
     height: 100vh;
   }
+  .tabbar {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    padding: 10px 12px 8px;
+    background: #f7f9fb;
+    border-bottom: 1px solid var(--line);
+  }
+  .tabbar button.tab {
+    appearance: none;
+    border: 0;
+    color: #fff;
+    font-family: inherit;
+    font-weight: 700;
+    font-size: 16px;
+    padding: 8px 28px;
+    min-width: 132px;
+    cursor: pointer;
+    border-radius: 2px;
+    line-height: 1.2;
+  }
+  .tabbar button.tab-ERBS { background: #1F4E79; }
+  .tabbar button.tab-SiteLevel { background: #0E7490; }
+  .tabbar button.tab.on { box-shadow: inset 0 -4px 0 #fff; }
+  .tabbar button.tab:not(.on) { filter: brightness(0.72); }
   aside {
+    grid-row: 2;
     background: #fff;
     border-right: 1px solid var(--line);
     display: flex;
@@ -374,7 +575,7 @@ HTML = r"""<!DOCTYPE html>
   .sev.Medium { color: var(--medium); }
   .sev.Low { color: var(--low); }
   .sev.Decision { color: var(--decision); }
-  main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  main { grid-row: 2; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
   .chart-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
   .kpis { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 16px 4px; }
   .kpi {
@@ -406,16 +607,20 @@ HTML = r"""<!DOCTYPE html>
   .nav { display: flex; gap: 6px; }
   @media (max-width: 860px) {
     .oss { grid-template-columns: 1fr; }
-    body { grid-template-columns: 1fr; grid-template-rows: 32vh 1fr; }
-    aside { border-right: 0; border-bottom: 1px solid var(--line); }
+    body { grid-template-columns: 1fr; grid-template-rows: auto 32vh minmax(0, 1fr); }
+    .tabbar { grid-column: 1; grid-row: 1; }
+    aside { grid-column: 1; grid-row: 2; border-right: 0; border-bottom: 1px solid var(--line); }
+    main { grid-column: 1; grid-row: 3; }
   }
 </style>
 </head>
 <body>
+<div class="tabbar" id="tabs"></div>
 <aside>
   <header>
-    <h1>1. Site List · Excel __EXCEL_VERSION__</h1>
+    <h1 id="listTitle">1. Site List_ERBS · Excel __EXCEL_VERSION__</h1>
     <p class="sub" id="period"></p>
+    <p class="sub" id="hint"></p>
   </header>
   <div class="tools">
     <input id="q" type="search" placeholder="Search ERBS, tech, severity" autocomplete="off">
@@ -444,6 +649,11 @@ HTML = r"""<!DOCTYPE html>
 </main>
 <script>
 const VIEW = __DATA__;
+const EXCEL_VERSION = "__EXCEL_VERSION__";
+const TAB_IDS = ["ERBS", "SiteLevel"];
+let tabId = "ERBS";
+function tab() { return VIEW.tabs[tabId]; }
+function sites() { return tab().sites; }
 const SERIES = [
   { key: "rx", name: "Max DL Capacity Usage (Mbps)", color: "#5B9BD5", dash: false },
   { key: "peak", name: "Peak", color: "#C00000", dash: true },
@@ -458,21 +668,20 @@ let current = 0;
 let shown = [];
 const ROW_H = 32;
 const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "All Sites"];
-VIEW.sites.forEach((site, index) => { site.i = index; });
 
 function primary(site) {
   return (site.category || "").split(" + ")[0];
 }
 function visible() {
   const q = query.trim().toLowerCase();
-  const rows = VIEW.sites.filter(site => {
+  const rows = sites().filter(site => {
     if (filter === "All Sites") {
-      /* every ERBS in the FEG window */
+      /* every ERBS, or every site, in the FEG window */
     } else if (filter === "All") {
       if (!site.listed) return false;
     } else if (!site.listed || primary(site) !== filter) return false;
     if (!q) return true;
-    return [site.site, site.tech, site.siteType, site.category, site.severity, String(site.n || "")]
+    return [site.site, site.tech, site.siteType, site.band, site.category, site.severity, String(site.n || "")]
       .join(" ").toLowerCase().includes(q);
   });
   if (filter === "All Sites") rows.sort((a, b) => a.site.localeCompare(b.site));
@@ -482,8 +691,9 @@ function rowTitle(site) {
   return site.listed && site.n ? site.n + ". " + site.site : site.site;
 }
 function rowMeta(site) {
-  if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "");
-  return primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span> · " + site.tech + " · " + site.siteType;
+  const band = site.band ? " · " + site.band : "";
+  if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "") + band;
+  return primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band + " · " + site.tech + " · " + site.siteType;
 }
 function yScale(values) {
   const finite = values.filter(v => v != null && isFinite(v));
@@ -500,7 +710,8 @@ function lineValues(site, key) {
   return site.rx.map(() => value);
 }
 function draw() {
-  const site = VIEW.sites[current];
+  const site = sites()[current];
+  if (!site) return;
   const canvas = document.getElementById("chart");
   const stage = document.getElementById("stage");
   const dpr = window.devicePixelRatio || 1;
@@ -607,7 +818,8 @@ function showTip(event) {
     return;
   }
   const i = Math.max(0, Math.min(geom.n - 1, Math.round((x - geom.pad.l) / geom.plotW * (geom.n - 1))));
-  const site = VIEW.sites[current];
+  const site = sites()[current];
+  if (!site) return;
   const rows = SERIES.filter(spec => on[spec.key]).map(spec => {
     const value = lineValues(site, spec.key)[i];
     const shown = value == null ? "—" : value.toFixed(2);
@@ -632,7 +844,8 @@ function kpi(label, value, unit) {
   return `<div class="kpi"><b>${shown}${unit && shown !== "—" ? unit : ""}</b><span>${label}</span></div>`;
 }
 function renderChart() {
-  const site = VIEW.sites[current];
+  const site = sites()[current];
+  if (!site) return;
   document.getElementById("title").textContent = site.listed && site.n
     ? `${String(site.n).padStart(2, "0")}    ${site.site}`
     : site.site;
@@ -648,7 +861,8 @@ function renderChart() {
     kpi("Peak ratio (%)", site.ratio, ""),
     kpi("Where touched", site.where, ""),
     kpi("Tech", site.tech, ""),
-    kpi("Site Type", site.siteType, "")
+    kpi("Site Type", site.siteType, ""),
+    kpi(tab().bandLabel, site.band, "")
   ].join("");
   const ossNames = ["DL Throughput 1h (Mbps)", "DLPRBUtilization,%", "Data Volume 1h (GB)", "Max User 1h", "Mean User 1h"];
   const ossPair = (VIEW.oss || {})[site.site.slice(0, 7)];
@@ -669,7 +883,7 @@ function renderChart() {
   document.querySelectorAll(".site").forEach(button => {
     button.classList.toggle("on", Number(button.dataset.index) === current);
   });
-  try { history.replaceState(null, "", "#" + encodeURIComponent(site.site)); } catch (err) {}
+  try { history.replaceState(null, "", "#" + tabId + "/" + encodeURIComponent(site.site)); } catch (err) {}
   draw();
 }
 function paintRows() {
@@ -701,15 +915,17 @@ function renderList(scrollToSelection) {
   paintRows();
   document.getElementById("filters").innerHTML = filters.map(name => {
     const count = name === "All Sites"
-      ? VIEW.sites.length
+      ? sites().length
       : name === "All"
-        ? VIEW.sites.filter(site => site.listed).length
-        : VIEW.sites.filter(site => site.listed && primary(site) === name).length;
+        ? sites().filter(site => site.listed).length
+        : sites().filter(site => site.listed && primary(site) === name).length;
     return `<button type="button" data-filter="${name}" class="${filter === name ? "on" : ""}">${name} ${count.toLocaleString()}</button>`;
   }).join("");
 }
 function selectIndex(index) {
-  current = Math.max(0, Math.min(VIEW.sites.length - 1, index));
+  const rows = sites();
+  if (!rows.length) return;
+  current = Math.max(0, Math.min(rows.length - 1, index));
   renderList(true);
   renderChart();
 }
@@ -758,13 +974,48 @@ document.getElementById("legend").addEventListener("change", event => {
   on[key] = event.target.checked;
   draw();
 });
-const issueCount = VIEW.sites.filter(site => site.listed).length;
-document.getElementById("period").textContent = `${VIEW.period} · ${issueCount.toLocaleString()} issue sites · All Sites ${VIEW.sites.length.toLocaleString()}`;
-const hash = decodeURIComponent(location.hash.replace(/^#/, ""));
-const hashed = VIEW.sites.findIndex(site => site.site === hash || String(site.n) === hash);
-current = hashed >= 0 ? hashed : 0;
-renderList(true);
-renderChart();
+function updateChrome() {
+  const issueCount = sites().filter(site => site.listed).length;
+  const noun = tabId === "ERBS" ? "issue ERBS" : "issue sites";
+  document.getElementById("listTitle").textContent = `${tab().listTitle} · Excel ${EXCEL_VERSION}`;
+  document.getElementById("q").placeholder = tab().search;
+  document.getElementById("period").textContent = `${VIEW.period} · ${issueCount.toLocaleString()} ${noun} · All Sites ${sites().length.toLocaleString()}`;
+  document.getElementById("hint").textContent = tab().hint;
+  document.getElementById("tabs").innerHTML = TAB_IDS.map(id => {
+    const spec = VIEW.tabs[id];
+    return `<button type="button" class="tab tab-${id}${id === tabId ? " on" : ""}" data-tab="${id}">${spec.label}</button>`;
+  }).join("");
+}
+function readHash() {
+  const raw = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+  const cut = raw.indexOf("/");
+  if (cut > 0 && VIEW.tabs[raw.slice(0, cut)]) return { id: raw.slice(0, cut), site: raw.slice(cut + 1) };
+  if (VIEW.tabs[raw]) return { id: raw, site: "" };
+  return { id: "ERBS", site: raw };
+}
+function activate(id, siteName, reset) {
+  tabId = VIEW.tabs[id] ? id : "ERBS";
+  if (reset) {
+    filter = "All";
+    query = "";
+    document.getElementById("q").value = "";
+  }
+  sites().forEach((site, index) => { site.i = index; });
+  const found = siteName
+    ? sites().findIndex(site => site.site === siteName || String(site.n) === siteName)
+    : 0;
+  current = found >= 0 ? found : 0;
+  updateChrome();
+  renderList(true);
+  renderChart();
+}
+document.getElementById("tabs").addEventListener("click", event => {
+  const button = event.target.closest("button");
+  if (!button || button.dataset.tab === tabId) return;
+  activate(button.dataset.tab, "", true);
+});
+const start = readHash();
+activate(start.id, start.site, false);
 </script>
 </body>
 </html>
@@ -798,7 +1049,11 @@ def main() -> None:
     dest = Path(args.output)
     write_html(view, dest)
     hours = len(view["labels"])
-    print(f"Wrote {dest} · {len(view['sites'])} sites · {hours} hours · {dest.stat().st_size:,} bytes")
+    erbs_n = len(view["tabs"]["ERBS"]["sites"])
+    site_n = len(view["tabs"]["SiteLevel"]["sites"])
+    print(
+        f"Wrote {dest} · ERBS {erbs_n:,} · SiteLevel {site_n:,} · {hours} hours · {dest.stat().st_size:,} bytes"
+    )
 
 
 if __name__ == "__main__":

@@ -107,6 +107,8 @@ TP Range counts capacity cells only. L09 cells are not added to a bin. An ERBS o
 
 ERBS Band and the site Band stay as they are. `CGPTA90` remains `L09`. Site `CGPTA90` remains `L09+L18+L21+L26`.
 
+The chart page for v28 has two tabs. **ERBS** opens `1. Site List_ERBS`. **SiteLevel** opens `1. Site List_SiteLevel`. Each tab uses the same filters (All, Tx Flat/Chocked, Peak Touch, License usage, All Sites), the same five chart lines, and the same 1 BusyHour OSS blocks. OSS is still the 7-character site, with L900 dropped. On SiteLevel, Max DL is the sum of the ERBS values for that site, date, and hour, and the license is the sum of `dlBbCapacityNet`. The ERBS Band or the site Band is shown on the chart. File: `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`.
+
 ### v27 Band columns and the ERBS sheet name
 
 - Sheet `1. Site List` is renamed `1. Site List_ERBS`.
