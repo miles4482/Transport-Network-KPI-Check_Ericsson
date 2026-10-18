@@ -57,17 +57,19 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 
 | File | Contents |
 |---|---|
-| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
+| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List_ERBS, 1. Site List_SiteLevel, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 7. Immediate actions. Comparison waits for a previous-window FEG file. Sheet 6. Missing FEG Port is not written from v29 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v23.xlsx` | v22 ERBS dashboard and `1. Site List` kept. Site Level Dashboard added underneath. New sheet `1. Site List_SiteLevel`. Site charts tagged on `2. HourlyChartOfIssueSites`. GeoPlot includes a physical site when any ERBS is an issue. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v24.xlsx` | v23 plus TP Range cell counts on `1. Site List` and `1. Site List_SiteLevel`, after each 4h and 1h OSS block. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v25.xlsx` | v24 plus the TP Range cell-count table on `2. HourlyChartOfIssueSites`, to the right of the OSS KPI table. 1 BusyHour pools 3 hours and 4 BusyHour pools 12 hours. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v26.xlsx` | v25 plus per-ERBS TP Range counts, including L900. `1. Site List` gains an ERBS Band column. OSS 4H/1H still drops L900. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v27.xlsx` | v26 with the ERBS sheet renamed `1. Site List_ERBS`. ERBS Band drops the word cells. `1. Site List_SiteLevel` gains a Band column. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx` | v27 with L900 removed from the TP Range. An ERBS that has only L09 cells has a blank TP Range. ERBS Band and the site Band are unchanged |
+| `FEGE_Choked_Flat_Sites_Ericsson_v29.xlsx` | v28 with sheet `6. Missing FEG Port` removed. `7. Immediate actions` is rebuilt from `1. Site List_SiteLevel` and the BH Flag 1H blocks only. A site is counted on the first matching priority row and not again |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html` | Earlier chart page for Excel v22. One ERBS list only |
-| `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html` | Chart page for Excel v28. Two tabs: **ERBS** (`1. Site List_ERBS`) and **SiteLevel** (`1. Site List_SiteLevel`). Each tab keeps the same filters, five chart lines, and 1 BusyHour OSS blocks. Site Max DL and the site license are the sums. Open this page |
-| `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.zip` | The same v28 page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
+| `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html` | Chart page built for Excel v28. Two tabs: **ERBS** and **SiteLevel** |
+| `FEGE_Choked_Flat_Sites_Ericsson_v29_Charts.html` | The v28 chart page, renamed to the v29 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v29_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
 
 Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`
 

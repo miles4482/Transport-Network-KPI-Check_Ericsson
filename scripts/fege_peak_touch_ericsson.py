@@ -25,8 +25,10 @@ Gap = (License - Peak) / License.
 Guards kept from RULES.md: a site needs at least 24 hourly samples and a
 Peak of at least 20 Mbit/s to be scored.
 
-Sheets written: Dashboard, 1. Site List_ERBS, 2. HourlyChartOfIssueSites
-(with hidden _ChartData), 3. Hourly KPI, 5. GeoPlot.
+Sheets written: Dashboard, 1. Site List_ERBS, 1. Site List_SiteLevel,
+2. HourlyChartOfIssueSites (with hidden _ChartData), 3. Hourly KPI,
+5. GeoPlot, URGENTBWINC_BusyHour, 7. Immediate actions.
+Sheet 6. Missing FEG Port is not written.
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v29.xlsx"
 SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -1888,7 +1890,7 @@ def prepare_oss(
         f"{calendar} "
         "DL Throughput, DLPRBUtilization,%, Data Volume, Max User, and Mean User are "
         "taken from the OSS busy hours. "
-        f"{len(missing):,} OSS sites have no ERBS in the FEG file (sheet 6. Missing FEG Port)."
+        f"{len(missing):,} OSS sites have no ERBS in the FEG file."
     )
     print(
         f"BusyHour sites {len(busy):,}  ·  OSS sites missing from FEG {len(missing):,}",
@@ -3027,6 +3029,269 @@ def _prepare_charts(
     return charts
 
 
+# First match wins. A site that fits an earlier row is not counted again.
+# Tests use Data 1H and User 1H only, the same two blocks behind BH Flag 1H.
+IMMEDIATE_1H = (
+    ("Data 1H", "tp_data_1h", "vol_data_1h", "users_data_1h"),
+    ("User 1H", "tp_user_1h", "vol_user_1h", "users_user_1h"),
+)
+IMMEDIATE_TAGS = (
+    ("vol", "High Priority (>100 GB & Severe, High)", (SEV_SEVERE, SEV_HIGH)),
+    ("lt5", "High Priority (User Throughput <5Mbps & Severe, High)", (SEV_SEVERE, SEV_HIGH)),
+    (
+        "lt5user",
+        "High Priority (User Throughput <5Mbps & MaxUser>=500 & Severe, High, Low)",
+        (SEV_SEVERE, SEV_HIGH, SEV_LOW),
+    ),
+    ("mid", "Mid Priority (User Throughput 5-8 Mbps & Severe, High)", (SEV_SEVERE, SEV_HIGH)),
+    ("low", "Low Priority (User Throughput 8 to 10 Mbps & Severe, High)", (SEV_SEVERE, SEV_HIGH)),
+)
+
+
+def _immediate_1h_why(busy: dict, key: str) -> str:
+    """Windows where this criterion is true. Empty when none of the 1H blocks match."""
+    hits = []
+    for label, tp_key, vol_key, user_key in IMMEDIATE_1H:
+        tp = _finite(busy.get(tp_key))
+        vol = _finite(busy.get(vol_key))
+        users = _finite(busy.get(user_key))
+        if key == "vol" and np.isfinite(vol) and vol > 100:
+            hits.append(f"{label} {vol:.2f} GB")
+        elif key == "lt5" and np.isfinite(tp) and tp < 5:
+            hits.append(f"{label} {tp:.2f} Mbps")
+        elif (
+            key == "lt5user"
+            and np.isfinite(tp) and tp < 5
+            and np.isfinite(users) and users >= 500
+        ):
+            hits.append(f"{label} {tp:.2f} Mbps, Max User {users:.0f}")
+        elif key == "mid" and np.isfinite(tp) and 5 <= tp < 8:
+            hits.append(f"{label} {tp:.2f} Mbps")
+        elif key == "low" and np.isfinite(tp) and 8 <= tp <= 10:
+            hits.append(f"{label} {tp:.2f} Mbps")
+    return "; ".join(hits)
+
+
+def _site_immediate_rows(
+    site_charts: list[dict],
+    busy_by_code: dict[str, dict],
+) -> list[dict]:
+    """One tag per site on 1. Site List_SiteLevel. Earlier criteria win."""
+    selected = []
+    for item in site_charts:
+        busy = busy_by_code.get(item.get("site_code", ""))
+        if not busy:
+            continue
+        severity = item.get("display_severity") or "—"
+        chosen = None
+        why = ""
+        for key, _name, allowed in IMMEDIATE_TAGS:
+            if severity not in allowed:
+                continue
+            why = _immediate_1h_why(busy, key)
+            if why:
+                chosen = key
+                break
+        if chosen is None:
+            continue
+        touch = item.get("touch") or {}
+        selected.append(
+            {
+                "site": item["site"],
+                "severity": severity,
+                "tech": item.get("tech") or fcc.TECH_4G,
+                "site_type": item.get("site_type") or "Not found",
+                "tag_key": chosen,
+                "tag": next(name for key, name, _allowed in IMMEDIATE_TAGS if key == chosen),
+                "why": why,
+                "hours_pct": float(touch.get("hours_pct") or 0.0),
+                "busy": busy,
+            }
+        )
+    rank = {key: i for i, (key, _name, _allowed) in enumerate(IMMEDIATE_TAGS)}
+    selected.sort(
+        key=lambda rec: (
+            rank[rec["tag_key"]],
+            SEVERITY_ORDER.get(rec["severity"], 9),
+            -rec["hours_pct"],
+            rec["site"],
+        )
+    )
+    return selected
+
+
+def write_site_immediate_actions(
+    book,
+    styles,
+    period_txt: str,
+    site_charts: list[dict],
+    busy_by_code: dict[str, dict],
+    site_chart_index: dict[str, int],
+) -> None:
+    """7. Immediate actions from the site list and the BH Flag 1H blocks only."""
+    rows = _site_immediate_rows(site_charts, busy_by_code)
+    ws = book.add_worksheet(fcc.IMMEDIATE_SHEET)
+    _page(ws, "Immediate actions — site level, BH Flag 1H")
+    ws.set_tab_color("#C00000")
+    counts = {key: sum(1 for rec in rows if rec["tag_key"] == key) for key, _name, _allowed in IMMEDIATE_TAGS}
+    head = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "font_color": "white",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#5B9BD5",
+            "border": 1,
+            "border_color": "#8FA8C4",
+        }
+    )
+    tag_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "valign": "vcenter",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "bg_color": "#D6EAF8",
+        }
+    )
+    count_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "bg_color": "#D6EAF8",
+            "num_format": "#,##0",
+        }
+    )
+    total_tag = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+        }
+    )
+    total_num = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "num_format": "#,##0",
+        }
+    )
+    last_col = 12
+    ws.set_row(0, 28)
+    ws.merge_range(0, 0, 0, last_col, "Immediate actions — site level", styles["title"])
+    ws.set_row(1, 78)
+    ws.merge_range(
+        1, 0, 1, last_col,
+        f"{period_txt}. Sites are taken from {SITE_LIST_SITE_SHEET} only. "
+        "The test uses the BH Flag 1H blocks only: DataBusyHour (1 BusyHour) and "
+        "UserBusyHour (1 BusyHour). 4 BusyHour is not used. "
+        "A value matches when either 1H block matches, the same rule as BH Flag 1H. "
+        "Throughput below 5 Mbps and Max User of at least 500 must be true on the same 1H block. "
+        "A site is listed once, under the first criterion it matches, and is not counted again. "
+        "Volume is greater than 100 GB. Throughput below 5 Mbps is strictly below 5. "
+        "5 Mbps up to but not including 8 Mbps is the mid band. 8 Mbps through 10 Mbps is the low band. "
+        "Medium and Decision are not listed.",
+        styles["note"],
+    )
+    ws.set_row(3, 22)
+    ws.merge_range(3, 0, 3, 5, "TAG", head)
+    ws.write(3, 6, "Site Count", head)
+    for offset, (key, name, _allowed) in enumerate(IMMEDIATE_TAGS):
+        ws.set_row(4 + offset, 22)
+        ws.merge_range(4 + offset, 0, 4 + offset, 5, name, tag_fmt)
+        ws.write_number(4 + offset, 6, counts[key], count_fmt)
+    total_row = 4 + len(IMMEDIATE_TAGS)
+    ws.set_row(total_row, 20)
+    ws.merge_range(total_row, 0, total_row, 5, "Total", total_tag)
+    ws.write_number(total_row, 6, len(rows), total_num)
+
+    headers = [
+        "No.",
+        "Site Name",
+        "Tech",
+        "Severity",
+        "Site Type",
+        "TAG",
+        "Matched 1H",
+        "DL Throughput Data 1h (Mbps)",
+        "DL Throughput User 1h (Mbps)",
+        "Data Volume Data 1h (GB)",
+        "Data Volume User 1h (GB)",
+        "Max User Data 1h",
+        "Max User User 1h",
+    ]
+    kpi_keys = (
+        "tp_data_1h",
+        "tp_user_1h",
+        "vol_data_1h",
+        "vol_user_1h",
+        "users_data_1h",
+        "users_user_1h",
+    )
+    header_row = total_row + 2
+    ws.set_row(header_row, 32)
+    for col, text in enumerate(headers):
+        ws.write(header_row, col, text, styles["header"])
+    for col, width in enumerate([6, 16, 12, 12, 14, 78, 42, 18, 18, 18, 18, 16, 16]):
+        ws.set_column(col, col, width)
+    for i, rec in enumerate(rows):
+        row = header_row + 1 + i
+        zebra = i % 2 == 1
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        text = styles["text_z"] if zebra else styles["text"]
+        center = styles["center_z"] if zebra else styles["center"]
+        link = styles["link_z"] if zebra else styles["link"]
+        ws.set_row(row, 18)
+        ws.write_number(row, 0, i + 1, styles["int_z"] if zebra else styles["int"])
+        chart_i = site_chart_index.get(rec["site"])
+        if chart_i is not None:
+            ws.write_url(
+                row, 1,
+                f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+                link,
+                string=rec["site"],
+            )
+        else:
+            ws.write_string(row, 1, rec["site"], text)
+        ws.write_string(row, 2, rec["tech"], center)
+        ws.write_string(row, 3, rec["severity"], fcc._severity_format(styles, rec["severity"], zebra))
+        ws.write_string(row, 4, rec["site_type"], center)
+        ws.write_string(row, 5, rec["tag"], text)
+        ws.write_string(row, 6, rec["why"], text)
+        for offset, key in enumerate(kpi_keys):
+            value = _finite(rec["busy"].get(key))
+            if np.isfinite(value):
+                ws.write_number(row, 7 + offset, value, nfmt)
+            else:
+                ws.write_blank(row, 7 + offset, None, nfmt)
+    last = header_row + max(len(rows), 1)
+    ws.autofilter(header_row, 0, last, len(headers) - 1)
+    ws.freeze_panes(header_row + 1, 2)
+    ws.set_zoom(100)
+    print(
+        "Immediate actions (site level, 1H only): "
+        + ", ".join(f"{name} {counts[key]}" for key, name, _allowed in IMMEDIATE_TAGS)
+        + f"; total {len(rows)}",
+        flush=True,
+    )
+
+
 def write_workbook(
     path: Path,
     source_name: str,
@@ -3155,25 +3420,9 @@ def write_workbook(
     link_records = [{"site": item["site_code"]} for item in charts]
     print(f"Writing BusyHour ({len(busy_rows):,} sites)...", flush=True)
     fcc._write_busy_hour_plan(book, styles, period_txt, link_records, busy_rows)
-    fcc._write_missing_feg_port(book, styles, missing_feg)
-    immediate_records = []
-    immediate_busy = []
-    for item in charts:
-        touch = item["touch"]
-        rec = {
-            "site": item["site"],
-            "severity": (touch.get("touch_severity") or touch["severity"]) if touch else "—",
-            "hours_pct": float(touch["hours_pct"]) if touch else 0.0,
-            "tech": item.get("tech") or fcc.TECH_4G,
-            "site_type": item.get("site_type") or "Not found",
-        }
-        immediate_records.append(rec)
-        src = busy_by_code.get(item["site_code"])
-        if src:
-            copy = dict(src)
-            copy.update(rec)
-            immediate_busy.append(copy)
-    fcc._write_immediate_actions(book, styles, immediate_records, immediate_busy)
+    write_site_immediate_actions(
+        book, styles, period_txt, site_charts, busy_by_code, site_chart_index,
+    )
     book.close()
     for jpeg in path.parent.glob(path.stem + "_GeoPlot_*.jpg"):
         jpeg.unlink()

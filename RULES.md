@@ -554,28 +554,29 @@ Sheet **Comparison**. All sites. RxMaxSpeed only (no Tx Total BW columns).
 | _GeoData | Hidden coordinates |
 | UrgentTxBWInc | Urgent upgrade list + thana summary |
 | URGENTBWINC_BusyHour | Capacity-only OSS busy hours, flags, 7/4/1 blocks, including Mean User |
-| 6. Missing FEG Port | OSS KPI sites with no FEG row. Action is to configure the FEG port. Compare FEG with OSS, not the physical site database |
-| 7. Immediate actions | Severe or High only. OR across Data 4H, User 4H, Data 1H, and User 1H. One tag per site |
+| 6. Missing FEG Port | Not written from v29 |
+| 7. Immediate actions | `1. Site List_SiteLevel` only. BH Flag 1H blocks only. One tag per site, first match |
 | Comparison | RxMaxSpeed ceiling step-up, when a previous window exists |
 
 Report file name must include the version: `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`.
 
 ### Missing FEG port
 
-A site that is in the capacity OSS KPI and absent from the FEG file is not choke-scored. The FEG port is not configured, so FEG KPI is not collected. Dashboard row 3 states the count. Sheet `6. Missing FEG Port` lists every such site with action **Configure FEG port**. Do not use the physical site database for this compare.
+v29 does not write sheet `6. Missing FEG Port`. A site that is in the capacity OSS KPI and absent from the FEG file is still not choke-scored. The dashboard note states the count. Do not use the physical site database for this compare.
 
 ### Immediate actions
 
-Sheet `7. Immediate actions`. Severe or High only. OR across the four windows Data 4H, User 4H, Data 1H, and User 1H: if any one window matches, the site is listed.
+Sheet `7. Immediate actions` (v29). The list is `1. Site List_SiteLevel` only. The test is the BH Flag 1H pair only: DataBusyHour (1 BusyHour) and UserBusyHour (1 BusyHour). 4 BusyHour is not used. Either 1H block can match, the same way BH Flag 1H becomes Yes.
 
-Each site is listed once, under the strongest customer-experience tag:
+A site is listed once, under the first criterion it matches, and is not counted on a later row:
 
-1. High Priority: any of the four Data Volume values **> 100 GB**
-2. High Priority: any of the four DL throughput values **< 5 Mbps**
-3. Mid Priority: any of the four DL throughput values from **5 Mbps up to but not including 8 Mbps**
-4. Low Priority: any of the four DL throughput values from **8 Mbps through 10 Mbps**
+1. High Priority: Data Volume **> 100 GB**, and Severity is Severe or High
+2. High Priority: DL throughput **< 5 Mbps**, and Severity is Severe or High
+3. High Priority: DL throughput **< 5 Mbps** and Max User **≥ 500** on the same 1H block, and Severity is Severe, High, or Low
+4. Mid Priority: DL throughput from **5 Mbps up to but not including 8 Mbps**, and Severity is Severe or High
+5. Low Priority: DL throughput from **8 Mbps through 10 Mbps**, and Severity is Severe or High
 
-A louder window wins over a milder one. Volume above 100 GB wins over throughput. Throughput above 10 Mbps with volume at or under 100 GB is not listed.
+Medium and Decision are not listed. Throughput above 10 Mbps, with volume at or under 100 GB, is not listed. Exactly 5 Mbps is the mid band. Exactly 8 Mbps is the low band. Exactly 100 GB is not the volume row.
 
 Excel freeze panes are off. Formula and scoring notes stay on Method, not on Dashboard or Site List.
 
