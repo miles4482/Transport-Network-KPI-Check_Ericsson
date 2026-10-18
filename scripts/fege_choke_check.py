@@ -1357,6 +1357,7 @@ def _score_oss_busy(
     vols: list[float] = []
     users: list[float] = []
     mean_users: list[float] = []
+    picked: list[tuple[pd.Timestamp, int]] = []
     for day in days:
         g = frame[frame["Date"] == day]
         hours = _top_n_hours(g, value_col, n)
@@ -1370,6 +1371,8 @@ def _score_oss_busy(
         if day == last_day:
             last_choked = choke
         if hours:
+            for hour in hours:
+                picked.append((pd.Timestamp(day).normalize(), int(hour)))
             sub = g[g["Hour"].isin(hours)]
             n_tp += float(sub["tp_n"].sum(skipna=True))
             d_tp += float(sub["tp_d"].sum(skipna=True))
@@ -1394,6 +1397,7 @@ def _score_oss_busy(
         "avg_vol": _nanmean(vols),
         "avg_users": _nanmean(users),
         "avg_mean_user": _nanmean(mean_users),
+        "picked": picked,
     }
 
 
@@ -1419,6 +1423,7 @@ def _block_fields(
         user_key: scored["avg_users"],
         prb_key: scored["prb"],
         mean_key: scored["avg_mean_user"],
+        f"{prefix}_picked": scored["picked"],
     }
 
 

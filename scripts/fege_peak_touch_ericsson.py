@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v23.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v24.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -1894,7 +1894,108 @@ def prepare_oss(
         f"BusyHour sites {len(busy):,}  ·  OSS sites missing from FEG {len(missing):,}",
         flush=True,
     )
+    attach_tp_cell_counts(busy)
     return busy, missing, note
+
+
+CELL_TP_CACHE = Path("/tmp/eric_oss_cell_tp.pkl")
+
+
+def _bin_cell_tp(tp: np.ndarray) -> np.ndarray:
+    """Map Mbps into the eight TP Range bins. 3 is in ≤3. 10 is in ≥10."""
+    idx = np.digitize(tp, [3, 4, 5, 7, 8, 9], right=True)
+    out = idx.astype(np.int16, copy=True)
+    above9 = idx == 6
+    out[above9 & (tp >= 10)] = 7
+    out[above9 & (tp < 10)] = 6
+    return out
+
+
+def load_cell_throughput() -> pd.DataFrame:
+    """Capacity cells with DL throughput Num/Denom. Site is the first 7 characters."""
+    parts = sorted(Path("/workspace").glob(OSS_PART_GLOB))
+    if not parts:
+        raise SystemExit(f"No OSS parts matching {OSS_PART_GLOB}")
+    stamp = tuple((path.name, path.stat().st_mtime_ns) for path in parts)
+    if CELL_TP_CACHE.exists():
+        cached = pickle.loads(CELL_TP_CACHE.read_bytes())
+        if cached.get("stamp") == stamp:
+            frame = cached["frame"]
+            print(f"Cell TP cache: {len(frame):,} cell-hours", flush=True)
+            return frame
+    frames = []
+    usecols = [
+        "Date",
+        "Hour",
+        "EUtranCell Id",
+        "Average User Throughput in DownLink (Mbps)_Num",
+        "Average User Throughput in DownLink (Mbps)_Denom",
+    ]
+    for part1 in parts:
+        dest = Path("/tmp/oss_cell_extract") / part1.name.replace(".part1.rar", "")
+        csv_path = fcc._extract_split_rar(part1, dest)
+        print(f"Cell TP {csv_path.name}", flush=True)
+        frames.append(pd.read_csv(csv_path, usecols=usecols))
+    raw = pd.concat(frames, ignore_index=True)
+    cell = raw["EUtranCell Id"].astype(str).str.strip()
+    keep = fcc._capacity_mask(cell) & ~cell.str.lower().isin(["", "nan", "none"])
+    raw = raw.loc[keep]
+    cell = cell.loc[keep]
+    text = raw["Date"].astype(str).str.strip()
+    text = text.mask(text.str.fullmatch(r"\d{1,2}-[A-Za-z]{3}"), text + "-2026")
+    frame = pd.DataFrame(
+        {
+            "Date": pd.to_datetime(text, format="%d-%b-%Y", errors="coerce").dt.normalize(),
+            "Hour": pd.to_numeric(raw["Hour"], errors="coerce"),
+            "site": cell.str[:7].to_numpy(),
+            "cell": cell.to_numpy(),
+            "n": pd.to_numeric(
+                raw["Average User Throughput in DownLink (Mbps)_Num"], errors="coerce"
+            ).to_numpy(),
+            "d": pd.to_numeric(
+                raw["Average User Throughput in DownLink (Mbps)_Denom"], errors="coerce"
+            ).to_numpy(),
+        }
+    )
+    frame = frame.dropna(subset=["Date", "Hour"])
+    frame["Hour"] = frame["Hour"].astype(np.int16)
+    CELL_TP_CACHE.write_bytes(pickle.dumps({"stamp": stamp, "frame": frame}))
+    print(f"Cell TP hours: {len(frame):,}  ·  sites {frame['site'].nunique():,}", flush=True)
+    return frame
+
+
+def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
+    """Count cells in each DL throughput bin for the 4h and 1h busy-hour blocks."""
+    if not busy_rows:
+        return
+    cells = load_cell_throughput()
+    prefixes = tuple(prefix for *_rest, prefix in OSS_BLOCKS)
+    for prefix in prefixes:
+        keys = [
+            (row["site"], pd.Timestamp(day).normalize(), int(hour))
+            for row in busy_rows
+            for day, hour in (row.get(f"{prefix}_picked") or [])
+        ]
+        counts: dict[str, list[int]] = {}
+        if keys:
+            key_df = pd.DataFrame(keys, columns=["site", "Date", "Hour"]).drop_duplicates()
+            key_df["Hour"] = key_df["Hour"].astype(np.int16)
+            merged = cells.merge(key_df, on=["site", "Date", "Hour"], how="inner")
+            if not merged.empty:
+                pooled = merged.groupby(["site", "cell"], sort=False)[["n", "d"]].sum()
+                pooled = pooled[pooled["d"] > 0]
+                pooled["bin"] = _bin_cell_tp((pooled["n"] / pooled["d"]).to_numpy())
+                sized = pooled.groupby(["site", "bin"], sort=False).size()
+                for (site, bin_id), count in sized.items():
+                    row_bins = counts.get(site)
+                    if row_bins is None:
+                        row_bins = [0] * len(TP_RANGE_LABELS)
+                        counts[site] = row_bins
+                    row_bins[int(bin_id)] = int(count)
+        for row in busy_rows:
+            row[f"tp_bins_{prefix}"] = counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
+        filled = sum(1 for row in busy_rows if sum(row[f"tp_bins_{prefix}"]) > 0)
+        print(f"TP Range {prefix}: {filled:,} sites with a cell count", flush=True)
 
 
 def _bh_yes(values: tuple[float, float], test) -> str | None:
@@ -1920,28 +2021,38 @@ OSS_BLOCKS = (
         "Data Volume 4h (GB)",
         "Max User 4h",
         "Mean User 4h",
-    )),
+    ), "data4"),
     ("UserBusyHour (4 BusyHour)", "4h", "#B7950B", (
         "DL Throughput 4h (Mbps)",
         "DLPRBUtilization,%",
         "Data Volume 4h (GB)",
         "Max User 4h",
         "Mean User 4h",
-    )),
+    ), "user4"),
     ("DataBusyHour (1 BusyHour)", "1h", "#6C3483", (
         "DL Throughput 1h (Mbps)",
         "DLPRBUtilization,%",
         "Data Volume 1h (GB)",
         "Max User 1h",
         "Mean User 1h",
-    )),
+    ), "data1"),
     ("UserBusyHour (1 BusyHour)", "1h", "#1A5276", (
         "DL Throughput 1h (Mbps)",
         "DLPRBUtilization,%",
         "Data Volume 1h (GB)",
         "Max User 1h",
         "Mean User 1h",
-    )),
+    ), "user1"),
+)
+TP_RANGE_TITLE = "TP Range in Mbps (Sum of Cell Count)"
+# ≤3 includes 3. ≥10 includes 10. The middle bins do not overlap.
+TP_RANGE_LABELS = ("≤3", "3–4", "4–5", "5–7", "7–8", "8–9", "9–10", "≥10")
+TP_NOTE = (
+    "TP Range counts capacity cells (L900 dropped). "
+    "A cell's DL throughput is Num/Denom summed over that block's busy hours. "
+    "≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The bins between them do not overlap. "
+    "The cell's site is the first 7 characters of EUtranCell Id, so every ERBS of a site "
+    "shows that site's cell counts."
 )
 
 
@@ -2005,9 +2116,12 @@ def write_site_list(
     right_start = bh_start + len(bh_flag)
     oss_start = right_start + len(right)
     col = oss_start
-    for _title, _kind, _color, names in OSS_BLOCKS:
+    for _title, _kind, _color, names, _prefix in OSS_BLOCKS:
         for _name in names:
             ws.set_column(col, col, 18)
+            col += 1
+        for _label in TP_RANGE_LABELS:
+            ws.set_column(col, col, 8)
             col += 1
     ws.set_row(0, 22)
     ws.merge_range(0, 0, 0, col - 1, title, styles["title"])
@@ -2025,7 +2139,8 @@ def write_site_list(
             "DL Throughput<5Mbps at or below 5 Mbps, Data Vol>100GB at least 100 GB. "
             "A blank cell means that 1h value is missing in both blocks. "
             "There is no Avg peak line. Below5%Peak is Peak × 95%. "
-            "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected."
+            "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected. "
+            + TP_NOTE
         ),
         styles["note"],
     )
@@ -2083,7 +2198,7 @@ def write_site_list(
         }
     )
     col = oss_start
-    for title, _kind, color, names in OSS_BLOCKS:
+    for title, _kind, color, names, _prefix in OSS_BLOCKS:
         group = book.add_format(
             {
                 "font_name": "Calibri",
@@ -2119,6 +2234,15 @@ def write_site_list(
         for offset, name in enumerate(names):
             ws.write(header_row + 1, col + offset, name, sub)
         col += len(names)
+        if len(TP_RANGE_LABELS) == 1:
+            ws.write(header_row, col, TP_RANGE_TITLE, group)
+        else:
+            ws.merge_range(
+                header_row, col, header_row, col + len(TP_RANGE_LABELS) - 1, TP_RANGE_TITLE, group
+            )
+        for offset, label in enumerate(TP_RANGE_LABELS):
+            ws.write(header_row + 1, col + offset, label, sub)
+        col += len(TP_RANGE_LABELS)
 
     for i, item in enumerate(charts):
         row = header_row + 2 + i
@@ -2189,12 +2313,24 @@ def write_site_list(
         else:
             for c in range(right_start + 6, right_start + 11):
                 ws.write_blank(row, c, None, cfmt)
-        for offset, key in enumerate(OSS_VALUE_KEYS):
-            value = _finite(busy.get(key))
-            if np.isfinite(value):
-                ws.write_number(row, oss_start + offset, value, nfmt)
-            else:
-                ws.write_blank(row, oss_start + offset, None, nfmt)
+        value_keys = iter(OSS_VALUE_KEYS)
+        oss_col = oss_start
+        has_busy = bool(busy)
+        for _title, _kind, _color, names, prefix in OSS_BLOCKS:
+            for _name in names:
+                value = _finite(busy.get(next(value_keys)))
+                if np.isfinite(value):
+                    ws.write_number(row, oss_col, value, nfmt)
+                else:
+                    ws.write_blank(row, oss_col, None, nfmt)
+                oss_col += 1
+            bins = busy.get(f"tp_bins_{prefix}") if has_busy else None
+            for offset in range(len(TP_RANGE_LABELS)):
+                if bins is None:
+                    ws.write_blank(row, oss_col, None, ifmt)
+                else:
+                    ws.write_number(row, oss_col, int(bins[offset]), ifmt)
+                oss_col += 1
     last = header_row + 1 + max(len(charts), 1)
     ws.autofilter(header_row + 1, 0, last, col - 1)
     ws.repeat_rows(header_row, header_row + 1)
@@ -2684,7 +2820,8 @@ def write_workbook(
                 "Data Volume, Max User, and Mean User summed, DL Throughput = Num/Denom, "
                 "DL PRB = (Num/Denom) × 100. "
                 "BH Flag 1H uses those same 1h blocks. "
-                "The name links to the Site chart on 2. HourlyChartOfIssueSites."
+                "The name links to the Site chart on 2. HourlyChartOfIssueSites. "
+                + TP_NOTE
             ),
         )
     all_charts = charts + site_charts

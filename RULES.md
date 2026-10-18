@@ -95,6 +95,12 @@ The ERBS dashboard and sheet `1. Site List` stay on the full ERBS / NodeId. v23 
 - GeoPlot still draws one dot per physical site. The full site is plotted when any of its ERBS is an issue, and also when the site-level dashboard lists it. The dot keeps the worst grade.
 - HTML is not rebuilt in v23.
 
+### v24 TP Range on the site lists
+
+On `1. Site List` and `1. Site List_SiteLevel`, each of the four OSS blocks (Data 4h, User 4h, Data 1h, User 1h) is followed by **TP Range in Mbps (Sum of Cell Count)**: ≤3, 3–4, 4–5, 5–7, 7–8, 8–9, 9–10, ≥10.
+
+A cell is counted once for that block. Its DL throughput is Num/Denom summed over the block's busy hours. ≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The middle bins do not overlap. L900 cells are dropped, the same cells behind the block's DL throughput. The cell's site is the first 7 characters of `EUtranCell Id`. Each ERBS of a site shows that site's cell counts, because the cell name does not carry the B01 / _01 node id. The chart-page HTML is not rebuilt.
+
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.
