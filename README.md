@@ -65,11 +65,13 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | `FEGE_Choked_Flat_Sites_Ericsson_v27.xlsx` | v26 with the ERBS sheet renamed `1. Site List_ERBS`. ERBS Band drops the word cells. `1. Site List_SiteLevel` gains a Band column. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx` | v27 with L900 removed from the TP Range. An ERBS that has only L09 cells has a blank TP Range. ERBS Band and the site Band are unchanged |
 | `FEGE_Choked_Flat_Sites_Ericsson_v29.xlsx` | v28 with sheet `6. Missing FEG Port` removed. `7. Immediate actions` is rebuilt from `1. Site List_SiteLevel` and the BH Flag 1H blocks only. A site is counted on the first matching priority row and not again |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx` | v29 plus 10 non-issue sites at the bottom of `1. Site List_ERBS` and `1. Site List_SiteLevel`, with comparison charts tagged Non Issue. Dashboard, GeoPlot, and Immediate actions are unchanged |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html` | Earlier chart page for Excel v22. One ERBS list only |
 | `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html` | Chart page built for Excel v28. Two tabs: **ERBS** and **SiteLevel** |
 | `FEGE_Choked_Flat_Sites_Ericsson_v29_Charts.html` | The v28 chart page, renamed to the v29 Excel version. The charts were not rebuilt |
-| `FEGE_Choked_Flat_Sites_Ericsson_v29_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html` | The same chart page, renamed to the v30 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
 
 Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`
 

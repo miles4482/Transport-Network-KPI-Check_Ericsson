@@ -93,6 +93,7 @@ The ERBS dashboard and sheet `1. Site List` stay on the full ERBS / NodeId. v23 
 - Each chart has a tag on the row just above the plot: `ERBS` or `Site`. ERBS charts stay first, so `1. Site List` still opens the same chart.
 - OSS on the site-level list follows the previous cell rollup: L900 dropped, sums for volume and users, throughput and PRB from Num/Denom.
 - GeoPlot still draws one dot per physical site. The full site is plotted when any of its ERBS is an issue, and also when the site-level dashboard lists it. The dot keeps the worst grade.
+- v30 adds 10 sites that are on neither dashboard, at the bottom of `1. Site List_ERBS` (every ERBS of those sites) and `1. Site List_SiteLevel` (the 10 sites). Their charts are tagged Non Issue, for comparison. They are not added to the Dashboard, GeoPlot issue set, or Immediate actions.
 - HTML is not rebuilt in v23.
 
 ### v24 TP Range on the site lists

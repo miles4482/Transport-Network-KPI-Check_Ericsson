@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v29.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx"
 SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -86,6 +86,8 @@ SEV_DECISION = "Decision"
 CAT_PEAK = "Peak Touch"
 CAT_LICENSE = "License usage"
 CAT_TX = "Tx Flat/Chocked"
+CAT_NON = "Non Issue"
+NON_ISSUE_SITES = 10
 # Gap = (License - Peak) / License. A listed site at or above 10% is Tx Flat/Chocked.
 GAP_MIN = 0.10
 TX_COMMENT = "Tx Issues Suspected"
@@ -2224,9 +2226,130 @@ def _listed_because(item: dict) -> str:
         parts.append(CAT_PEAK)
     elif item.get("category") == CAT_LICENSE:
         parts.append(CAT_LICENSE)
+    elif item.get("category") == CAT_NON:
+        return CAT_NON
     if item.get("license_listed") and item.get("category") != CAT_LICENSE:
         parts.append(CAT_LICENSE)
     return " + ".join(parts) or CAT_LICENSE
+
+
+def _write_site_rows(
+    ws,
+    styles,
+    items: list[dict],
+    *,
+    offset: int,
+    first_row: int,
+    busy_by_code: dict[str, dict],
+    erbs_tp: dict[str, dict] | None,
+    site_bands: dict[str, str] | None,
+    band_title: str | None,
+    show_band: bool,
+    bh_start: int,
+    right_start: int,
+    oss_start: int,
+    yes_fmt,
+) -> None:
+    """One site-list data row per item. The name links to that chart."""
+    for i, item in enumerate(items):
+        row = first_row + i
+        zebra = i % 2 == 1
+        ws.set_row(row, 18)
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        ifmt = styles["int_z"] if zebra else styles["int"]
+        cfmt = styles["center_z"] if zebra else styles["center"]
+        pfmt = styles["pct_z"] if zebra else styles["pct"]
+        tfmt = styles["text_z"] if zebra else styles["text"]
+        link = styles["link_z"] if zebra else styles["link"]
+        lines = item["lines"]
+        touch = item["touch"]
+        stat = item.get("lic_stat")
+        severity = item.get("display_severity") or (touch["severity"] if touch else "—")
+        where_touch = touch["cap_when"] if touch else lines["cap_when"]
+        chart_i = offset + i
+        ws.write_number(row, 0, chart_i + 1, ifmt)
+        ws.write_url(
+            row, 1,
+            f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+            link,
+            string=item["site"],
+        )
+        ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
+        ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
+        identity = 4
+        if band_title == "ERBS Band":
+            pack = (erbs_tp or {}).get(item["site"]) or {}
+            ws.write_string(row, 4, pack.get("band") or "—", cfmt)
+            identity = 5
+        elif band_title == "Band":
+            ws.write_string(row, 4, (site_bands or {}).get(item["site"]) or "—", cfmt)
+            identity = 5
+        ws.write_string(row, identity, _listed_because(item), tfmt)
+        sev_style = SEVERITY_STYLE.get(severity)
+        ws.write_string(row, identity + 1, severity, styles[sev_style] if sev_style else cfmt)
+        busy = busy_by_code.get(item.get("site_code", ""), {})
+        erbs_pack = (erbs_tp or {}).get(item["site"]) if show_band else None
+        tp_1h = (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h")))
+        vol_1h = (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h")))
+        flags = (
+            _bh_yes(tp_1h, lambda value: value <= 7.0),
+            _bh_yes(vol_1h, lambda value: value >= 50.0),
+            _bh_yes(tp_1h, lambda value: value <= 5.0),
+            _bh_yes(vol_1h, lambda value: value >= 100.0),
+        )
+        for flag_at, flag in enumerate(flags):
+            if flag == "Yes":
+                ws.write_string(row, bh_start + flag_at, "Yes", yes_fmt)
+            elif flag == "No":
+                ws.write_string(row, bh_start + flag_at, "No", cfmt)
+            else:
+                ws.write_blank(row, bh_start + flag_at, None, cfmt)
+        ws.write_number(row, right_start, lines["peak"], nfmt)
+        ws.write_number(row, right_start + 1, lines["level"], nfmt)
+        ws.write_number(row, right_start + 2, lines["hours_on"], ifmt)
+        ws.write_number(row, right_start + 3, lines["hours_n"], ifmt)
+        ws.write_number(row, right_start + 4, lines["hours_pct"], pfmt)
+        ws.write_string(row, right_start + 5, where_touch, cfmt)
+        peak_mbps = float(lines["peak"])
+        if stat:
+            lic_mbps = float(stat["license"])
+            ws.write_number(row, right_start + 6, lic_mbps, nfmt)
+            gap = (
+                (lic_mbps - peak_mbps) / lic_mbps
+                if lic_mbps > 0 and np.isfinite(peak_mbps)
+                else float("nan")
+            )
+            if np.isfinite(gap):
+                ws.write_number(row, right_start + 7, gap * 100.0, pfmt)
+            else:
+                ws.write_blank(row, right_start + 7, None, nfmt)
+            ws.write_number(row, right_start + 8, stat["hours_on"], ifmt)
+            ws.write_number(row, right_start + 9, stat["share"], pfmt)
+            ws.write_string(row, right_start + 10, stat["cap_when"], cfmt)
+        else:
+            for c in range(right_start + 6, right_start + 11):
+                ws.write_blank(row, c, None, cfmt)
+        value_keys = iter(OSS_VALUE_KEYS)
+        oss_col = oss_start
+        has_busy = bool(busy)
+        for _title, _kind, _color, names, prefix in OSS_BLOCKS:
+            for _name in names:
+                value = _finite(busy.get(next(value_keys)))
+                if np.isfinite(value):
+                    ws.write_number(row, oss_col, value, nfmt)
+                else:
+                    ws.write_blank(row, oss_col, None, nfmt)
+                oss_col += 1
+            if erbs_pack is not None:
+                bins = erbs_pack.get(prefix)
+            else:
+                bins = busy.get(f"tp_bins_{prefix}") if has_busy else None
+            for bin_at in range(len(TP_RANGE_LABELS)):
+                if bins is None:
+                    ws.write_blank(row, oss_col, None, ifmt)
+                else:
+                    ws.write_number(row, oss_col, int(bins[bin_at]), ifmt)
+                oss_col += 1
 
 
 def write_site_list(
@@ -2244,6 +2367,10 @@ def write_site_list(
     tab_color: str = "#375623",
     erbs_tp: dict[str, dict] | None = None,
     site_bands: dict[str, str] | None = None,
+    tail: list[dict] | None = None,
+    tail_title: str = "",
+    tail_note: str = "",
+    tail_offset: int = 0,
 ) -> None:
     """Issue sites from the Dashboard. Tech, Site Type, and OSS 4H/1H are filled."""
     ws = book.add_worksheet(sheet_name)
@@ -2429,108 +2556,43 @@ def write_site_list(
             ws.write(header_row + 1, col + offset, label, sub)
         col += len(TP_RANGE_LABELS)
 
-    for i, item in enumerate(charts):
-        row = header_row + 2 + i
-        zebra = i % 2 == 1
-        ws.set_row(row, 18)
-        nfmt = styles["num_z"] if zebra else styles["num"]
-        ifmt = styles["int_z"] if zebra else styles["int"]
-        cfmt = styles["center_z"] if zebra else styles["center"]
-        pfmt = styles["pct_z"] if zebra else styles["pct"]
-        tfmt = styles["text_z"] if zebra else styles["text"]
-        link = styles["link_z"] if zebra else styles["link"]
-        lines = item["lines"]
-        touch = item["touch"]
-        stat = item.get("lic_stat")
-        severity = item.get("display_severity") or (touch["severity"] if touch else "—")
-        where_touch = touch["cap_when"] if touch else lines["cap_when"]
-        chart_i = chart_offset + i
-        ws.write_number(row, 0, chart_i + 1, ifmt)
-        ws.write_url(
-            row, 1,
-            f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
-            link,
-            string=item["site"],
-        )
-        ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
-        ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
-        identity = 4
-        if band_title == "ERBS Band":
-            pack = (erbs_tp or {}).get(item["site"]) or {}
-            ws.write_string(row, 4, pack.get("band") or "—", cfmt)
-            identity = 5
-        elif band_title == "Band":
-            ws.write_string(row, 4, (site_bands or {}).get(item["site"]) or "—", cfmt)
-            identity = 5
-        ws.write_string(row, identity, _listed_because(item), tfmt)
-        sev_style = SEVERITY_STYLE.get(severity)
-        ws.write_string(row, identity + 1, severity, styles[sev_style] if sev_style else cfmt)
-        busy = busy_by_code.get(item.get("site_code", ""), {})
-        erbs_pack = (erbs_tp or {}).get(item["site"]) if show_band else None
-        tp_1h = (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h")))
-        vol_1h = (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h")))
-        flags = (
-            _bh_yes(tp_1h, lambda value: value <= 7.0),
-            _bh_yes(vol_1h, lambda value: value >= 50.0),
-            _bh_yes(tp_1h, lambda value: value <= 5.0),
-            _bh_yes(vol_1h, lambda value: value >= 100.0),
-        )
-        for offset, flag in enumerate(flags):
-            if flag == "Yes":
-                ws.write_string(row, bh_start + offset, "Yes", yes_fmt)
-            elif flag == "No":
-                ws.write_string(row, bh_start + offset, "No", cfmt)
-            else:
-                ws.write_blank(row, bh_start + offset, None, cfmt)
-        ws.write_number(row, right_start, lines["peak"], nfmt)
-        ws.write_number(row, right_start + 1, lines["level"], nfmt)
-        ws.write_number(row, right_start + 2, lines["hours_on"], ifmt)
-        ws.write_number(row, right_start + 3, lines["hours_n"], ifmt)
-        ws.write_number(row, right_start + 4, lines["hours_pct"], pfmt)
-        ws.write_string(row, right_start + 5, where_touch, cfmt)
-        peak_mbps = float(lines["peak"])
-        if stat:
-            lic_mbps = float(stat["license"])
-            ws.write_number(row, right_start + 6, lic_mbps, nfmt)
-            gap = (
-                (lic_mbps - peak_mbps) / lic_mbps
-                if lic_mbps > 0 and np.isfinite(peak_mbps)
-                else float("nan")
-            )
-            if np.isfinite(gap):
-                ws.write_number(row, right_start + 7, gap * 100.0, pfmt)
-            else:
-                ws.write_blank(row, right_start + 7, None, nfmt)
-            ws.write_number(row, right_start + 8, stat["hours_on"], ifmt)
-            ws.write_number(row, right_start + 9, stat["share"], pfmt)
-            ws.write_string(row, right_start + 10, stat["cap_when"], cfmt)
-        else:
-            for c in range(right_start + 6, right_start + 11):
-                ws.write_blank(row, c, None, cfmt)
-        value_keys = iter(OSS_VALUE_KEYS)
-        oss_col = oss_start
-        has_busy = bool(busy)
-        for _title, _kind, _color, names, prefix in OSS_BLOCKS:
-            for _name in names:
-                value = _finite(busy.get(next(value_keys)))
-                if np.isfinite(value):
-                    ws.write_number(row, oss_col, value, nfmt)
-                else:
-                    ws.write_blank(row, oss_col, None, nfmt)
-                oss_col += 1
-            if erbs_pack is not None:
-                bins = erbs_pack.get(prefix)
-            else:
-                bins = busy.get(f"tp_bins_{prefix}") if has_busy else None
-            for offset in range(len(TP_RANGE_LABELS)):
-                if bins is None:
-                    ws.write_blank(row, oss_col, None, ifmt)
-                else:
-                    ws.write_number(row, oss_col, int(bins[offset]), ifmt)
-                oss_col += 1
+    row_args = dict(
+        busy_by_code=busy_by_code,
+        erbs_tp=erbs_tp,
+        site_bands=site_bands,
+        band_title=band_title,
+        show_band=show_band,
+        bh_start=bh_start,
+        right_start=right_start,
+        oss_start=oss_start,
+        yes_fmt=yes_fmt,
+    )
+    _write_site_rows(
+        ws, styles, charts, offset=chart_offset, first_row=header_row + 2, **row_args,
+    )
     last = header_row + 1 + max(len(charts), 1)
     ws.autofilter(header_row + 1, 0, last, col - 1)
     ws.repeat_rows(header_row, header_row + 1)
+    if tail:
+        title_fmt = book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 14,
+                "font_color": "white",
+                "bg_color": "#00B050",
+                "align": "left",
+                "valign": "vcenter",
+            }
+        )
+        gap_row = header_row + 2 + len(charts) + 2
+        ws.set_row(gap_row, 24)
+        ws.write(gap_row, 0, tail_title, title_fmt)
+        ws.set_row(gap_row + 1, 36)
+        ws.merge_range(gap_row + 1, 0, gap_row + 1, 8, tail_note, styles["note"])
+        _write_site_rows(
+            ws, styles, tail, offset=tail_offset, first_row=gap_row + 3, **row_args,
+        )
     ws.set_zoom(100)
 
 
@@ -2730,9 +2792,20 @@ def write_issue_snapshots(
                 "bg_color": "#C65911",
             }
         ),
+        CAT_NON: book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 12,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#00B050",
+            }
+        ),
     }
 
-    print(f"Writing {len(charts)} issue charts...")
+    print(f"Writing {len(charts)} charts...")
     for i, item in enumerate(charts):
         if i and i % 100 == 0:
             print(f"  charts {i}/{len(charts)}", flush=True)
@@ -2799,7 +2872,9 @@ def write_issue_snapshots(
             tags.append(f"{CAT_PEAK} {item['display_severity']}")
         elif item.get("category") == CAT_LICENSE:
             tags.append(f"{CAT_LICENSE} {item.get('display_severity', '')}")
-        if lic and item.get("category") != CAT_LICENSE:
+        elif item.get("category") == CAT_NON:
+            tags.append("Non Issue")
+        if lic and item.get("category") not in (CAT_LICENSE, CAT_NON):
             tags.append(f"License {lic['share']:.1f}% of hours ≥{use_pct:.0f}%")
         ws.set_row(top, 26)
         ws.merge_range(
@@ -2820,7 +2895,13 @@ def write_issue_snapshots(
         for col, _label, value in labels:
             ws.merge_range(top + 2, col, top + 2, col + 1, value, styles["kpi_value"])
         ws.set_row(top + 3, 18)
-        ws.merge_range(top + 3, 0, top + 3, 2, level, tag_formats[level])
+        if item.get("category") == CAT_NON:
+            tag_text = f"Non Issue · {level}"
+            tag_fmt = tag_formats[CAT_NON]
+        else:
+            tag_text = level
+            tag_fmt = tag_formats[level]
+        ws.merge_range(top + 3, 0, top + 3, 2, tag_text, tag_fmt)
 
         chart = book.add_chart({"type": "line"})
         chart.show_blanks_as("gap")
@@ -3292,6 +3373,104 @@ def write_site_immediate_actions(
     )
 
 
+def _touch_table(frame: pd.DataFrame) -> pd.DataFrame:
+    """Peak-touch ratio for every name that has enough samples and a real peak."""
+    rows = []
+    for site, group in frame.groupby("eNodeB Name", sort=False):
+        rx = group["Rx"].to_numpy(dtype=float)
+        valid = np.isfinite(rx)
+        hours_n = int(valid.sum())
+        if hours_n < MIN_SAMPLES:
+            continue
+        peak = float(np.nanmax(rx))
+        if peak < MIN_PEAK_MBPS:
+            continue
+        level = peak * (1.0 - TOUCH_BAND)
+        touched = int((valid & (rx >= level)).sum())
+        rows.append((str(site), 100.0 * touched / hours_n))
+    return pd.DataFrame(rows, columns=["site", "touch_pct"])
+
+
+def select_non_issue_sites(
+    work: pd.DataFrame,
+    site_work: pd.DataFrame,
+    charts: list[dict],
+    site_charts: list[dict],
+    license_summary: dict | None,
+    site_license_summary: dict | None,
+    known_codes: set[str],
+) -> list[str]:
+    """Ten physical sites that are absent from both dashboards.
+
+    Every ERBS of the site is also absent. Touch ratio and license-hour share
+    stay under the listing floors, so the comparison chart is not an issue chart.
+    """
+    issue_erbs = {item["site"] for item in charts}
+    issue_sites = {item["site"] for item in site_charts}
+    erbs_touch = _touch_table(work).set_index("site")
+    site_touch = _touch_table(site_work).set_index("site")
+    erbs_stats = (license_summary or {}).get("stats_by_site") or {}
+    site_stats = (site_license_summary or {}).get("stats_by_site") or {}
+    by_code: dict[str, list[str]] = defaultdict(list)
+    for name in erbs_touch.index:
+        by_code[str(name)[:7]].append(str(name))
+
+    def take(max_nodes: int, touch_cap: float, share_cap: float) -> list[str]:
+        picked = []
+        for code in sorted(by_code):
+            if code in issue_sites or code not in site_touch.index or code not in known_codes:
+                continue
+            nodes = by_code[code]
+            if not nodes or len(nodes) > max_nodes or any(node in issue_erbs for node in nodes):
+                continue
+            if float(site_touch.loc[code, "touch_pct"]) >= touch_cap:
+                continue
+            site_stat = site_stats.get(code)
+            if not site_stat or float(site_stat["share"]) >= share_cap or float(site_stat["license"]) <= 0:
+                continue
+            clean = True
+            for node in nodes:
+                stat = erbs_stats.get(node)
+                if node not in erbs_touch.index or not stat or float(stat["share"]) >= share_cap:
+                    clean = False
+                    break
+                if float(erbs_touch.loc[node, "touch_pct"]) >= touch_cap or float(stat["license"]) <= 0:
+                    clean = False
+                    break
+            if not clean:
+                continue
+            picked.append(code)
+            if len(picked) == NON_ISSUE_SITES:
+                break
+        return picked
+
+    chosen = take(3, 5.0, 5.0)
+    if len(chosen) < NON_ISSUE_SITES:
+        chosen = take(6, 10.0, 10.0)
+    if len(chosen) < NON_ISSUE_SITES:
+        raise SystemExit(f"Found only {len(chosen)} non-issue sites; need {NON_ISSUE_SITES}")
+    print("Non-issue comparison sites: " + ", ".join(chosen), flush=True)
+    return chosen
+
+
+def _comparison_chart(name: str, level: str, group: pd.DataFrame, stat: dict, tech: str, site_type: str) -> dict:
+    return {
+        "site": name,
+        "touch": None,
+        "license": stat,
+        "lines": trace_lines(group),
+        "lic_stat": stat,
+        "license_mbps": float(stat["license"]),
+        "category": CAT_NON,
+        "display_severity": "—",
+        "level": level,
+        "site_code": site_code(name),
+        "tech": tech,
+        "site_type": site_type,
+        "license_listed": False,
+    }
+
+
 def write_workbook(
     path: Path,
     source_name: str,
@@ -3357,7 +3536,52 @@ def write_workbook(
         oss_note=oss_note,
         site_level=site_level,
     )
-    write_site_list(book, styles, period_txt, charts, busy_by_code, erbs_tp=erbs_tp)
+    non_erbs: list[dict] = []
+    non_sites: list[dict] = []
+    if site_work is not None and license_summary is not None and site_license_summary is not None:
+        known_codes = set(tech_by_code) | set(type_by_code)
+        non_codes = select_non_issue_sites(
+            work, site_work, charts, site_charts,
+            license_summary, site_license_summary, known_codes,
+        )
+        erbs_groups = {name: group for name, group in work.groupby("eNodeB Name", sort=False)}
+        site_groups = {name: group for name, group in site_work.groupby("eNodeB Name", sort=False)}
+        nodes_of: dict[str, list[str]] = defaultdict(list)
+        for name in erbs_groups:
+            nodes_of[site_code(str(name))].append(str(name))
+        erbs_stats = license_summary["stats_by_site"]
+        site_stats = site_license_summary["stats_by_site"]
+        for code in non_codes:
+            non_sites.append(
+                _comparison_chart(
+                    code, LEVEL_SITE, site_groups[code], site_stats[code],
+                    tech_by_code.get(code, fcc.TECH_4G), type_by_code.get(code) or "Not found",
+                )
+            )
+            for node in sorted(nodes_of[code]):
+                non_erbs.append(
+                    _comparison_chart(
+                        node, LEVEL_ERBS, erbs_groups[node], erbs_stats[node],
+                        tech_by_code.get(code, fcc.TECH_4G), type_by_code.get(code) or "Not found",
+                    )
+                )
+        print(
+            f"Non-issue rows: {len(non_erbs)} ERBS for {len(non_sites)} sites",
+            flush=True,
+        )
+    non_note = (
+        "These sites are not on the Dashboard. None of their ERBS is Tx Flat/Chocked, "
+        "Peak Touch, or License usage. The rows and the green Non Issue charts are for "
+        "comparison only. "
+        + ", ".join(item["site"] for item in non_sites)
+    )
+    write_site_list(
+        book, styles, period_txt, charts, busy_by_code, erbs_tp=erbs_tp,
+        tail=non_erbs,
+        tail_title="Non Issues ERBS",
+        tail_note="ERBS for 10 sites which have no problem or issues. " + non_note,
+        tail_offset=len(charts) + len(site_charts),
+    )
     if site_charts:
         write_site_list(
             book, styles, period_txt, site_charts, busy_by_code,
@@ -3381,8 +3605,13 @@ def write_workbook(
                 + TP_NOTE
             ),
             site_bands=site_bands,
+            tail=non_sites,
+            tail_title="Non Issues Sites",
+            tail_note="10 sites which have no problem or issues. " + non_note,
+            tail_offset=len(charts) + len(site_charts) + len(non_erbs),
         )
-    all_charts = charts + site_charts
+    issue_charts = charts + site_charts
+    all_charts = issue_charts + non_erbs + non_sites
     work_by_level = {LEVEL_ERBS: work}
     if site_work is not None:
         work_by_level[LEVEL_SITE] = site_work
@@ -3392,12 +3621,12 @@ def write_workbook(
             busy_by_code, work_by_level, erbs_tp,
         )
         print("Writing hourly KPI...", flush=True)
-        write_issue_hourly(book, styles, work, all_charts, work_by_level)
+        write_issue_hourly(book, styles, work, issue_charts, work_by_level)
     else:
         write_snapshots(book, styles, work, records, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
         write_hourly(book, styles, work, records)
-    geo_records, license_only_sites = geo_issue_records(all_charts)
+    geo_records, license_only_sites = geo_issue_records(issue_charts)
     print(
         f"GeoPlot: {len(geo_records)} physical sites from {len(charts)} ERBS "
         f"and {len(site_charts)} site-level findings "
