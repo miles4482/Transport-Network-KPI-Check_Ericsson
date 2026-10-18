@@ -101,6 +101,12 @@ On `1. Site List` and `1. Site List_SiteLevel`, each of the four OSS blocks (Dat
 
 A cell is counted once for that block. Its DL throughput is Num/Denom summed over the block's busy hours. ≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The middle bins do not overlap. L900 cells are dropped, the same cells behind the block's DL throughput. The cell's site is the first 7 characters of `EUtranCell Id`. Each ERBS of a site shows that site's cell counts, because the cell name does not carry the B01 / _01 node id. The chart-page HTML is not rebuilt.
 
+### v28 L900 is out of the TP Range
+
+TP Range counts capacity cells only. L09 cells are not added to a bin. An ERBS or a site whose cells are all L09 has a blank TP Range, not zeros. `CGPTA90` is blank. `CGPTA90L` still shows the L18, L21, and L26 cell counts. Site `CGPTA90` counts those same capacity cells.
+
+ERBS Band and the site Band stay as they are. `CGPTA90` remains `L09`. Site `CGPTA90` remains `L09+L18+L21+L26`.
+
 ### v27 Band columns and the ERBS sheet name
 
 - Sheet `1. Site List` is renamed `1. Site List_ERBS`.

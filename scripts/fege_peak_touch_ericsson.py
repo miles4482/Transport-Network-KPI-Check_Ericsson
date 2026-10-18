@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v27.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx"
 SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -2045,9 +2045,10 @@ def _empty_erbs_pack() -> dict:
 def attach_tp_cell_counts(
     busy_rows: list[dict], erbs_names: set[str]
 ) -> tuple[dict[str, dict], dict[str, str]]:
-    """Site bins include every cell. ERBS bins include only that ERBS's cells.
+    """Site and ERBS bins count capacity cells only. L900 is left out.
 
-    L900 is included here. The OSS KPI blocks are unchanged.
+    An ERBS or site whose cells are all L09 gets a blank TP Range. The Band
+    columns still list L09. The OSS KPI blocks are unchanged.
     """
     erbs_tp = {name: _empty_erbs_pack() for name in erbs_names}
     if not busy_rows:
@@ -2060,11 +2061,14 @@ def attach_tp_cell_counts(
     owned_rows: list[tuple[str, str, str]] = []
     bands: dict[str, set[str]] = defaultdict(set)
     site_band_sets: dict[str, set[str]] = defaultdict(set)
+    capacity_cells: set[str] = set()
     for site, group in unique.groupby("site", sort=False):
         mapping = _owners_for_site(site, nodes_by.get(site, []), group["cell"].tolist())
         for cell, owners in mapping.items():
             band = cell_band_label(cell)
             site_band_sets[site].add(band)
+            if band != "L09":
+                capacity_cells.add(cell)
             for erbs in owners:
                 owned_rows.append((cell, erbs, band))
                 bands[erbs].add(band)
@@ -2086,6 +2090,7 @@ def attach_tp_cell_counts(
             key_df = pd.DataFrame(keys, columns=["site", "Date", "Hour"]).drop_duplicates()
             key_df["Hour"] = key_df["Hour"].astype(np.int16)
             merged = cells.merge(key_df, on=["site", "Date", "Hour"], how="inner")
+            merged = merged[merged["cell"].isin(capacity_cells)]
             if not merged.empty:
                 pooled = merged.groupby(["site", "cell"], sort=False)[["n", "d"]].sum()
                 pooled = pooled[pooled["d"] > 0]
@@ -2097,7 +2102,8 @@ def attach_tp_cell_counts(
                         row_bins = [0] * len(TP_RANGE_LABELS)
                         site_counts[site] = row_bins
                     row_bins[int(bin_id)] = int(count)
-                tagged = pooled.reset_index().merge(owned, on="cell", how="inner")
+                capacity_owned = owned[owned["band"] != "L09"] if not owned.empty else owned
+                tagged = pooled.reset_index().merge(capacity_owned, on="cell", how="inner")
                 if not tagged.empty:
                     sized_erbs = tagged.groupby(["erbs", "bin"], sort=False).size()
                     for (erbs, bin_id), count in sized_erbs.items():
@@ -2107,11 +2113,21 @@ def attach_tp_cell_counts(
                             erbs_counts[erbs] = row_bins
                         row_bins[int(bin_id)] = int(count)
         for row in busy_rows:
-            row[f"tp_bins_{prefix}"] = site_counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
+            held = site_band_sets.get(row["site"], set())
+            if held and held <= {"L09"}:
+                row[f"tp_bins_{prefix}"] = None
+            else:
+                row[f"tp_bins_{prefix}"] = site_counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
         for erbs, row_bins in erbs_counts.items():
-            if erbs in erbs_tp:
+            if erbs in erbs_tp and not (bands.get(erbs, set()) <= {"L09"} and bands.get(erbs)):
                 erbs_tp[erbs][prefix] = row_bins
-        filled = sum(1 for row in busy_rows if sum(row[f"tp_bins_{prefix}"]) > 0)
+        for erbs, held in bands.items():
+            if held <= {"L09"} and erbs in erbs_tp:
+                erbs_tp[erbs][prefix] = None
+        filled = sum(
+            1 for row in busy_rows
+            if row[f"tp_bins_{prefix}"] and sum(row[f"tp_bins_{prefix}"]) > 0
+        )
         expected = 12 if prefix.endswith("4") else 3
         matched = sum(1 for row in busy_rows if len(row.get(f"{prefix}_picked") or []) == expected)
         print(
@@ -2122,10 +2138,9 @@ def attach_tp_cell_counts(
     for sample in ("CGPTA90", "CGPTA90L"):
         pack = erbs_tp.get(sample)
         if pack:
-            print(
-                f"  {sample} band {pack['band']} · data4 cells {sum(pack['data4'])}",
-                flush=True,
-            )
+            counted = pack["data4"]
+            detail = "blank" if counted is None else str(sum(counted))
+            print(f"  {sample} band {pack['band']} · data4 cells {detail}", flush=True)
     if "CGPTA90" in site_bands:
         print(f"  site CGPTA90 band {site_bands['CGPTA90']}", flush=True)
     return erbs_tp, site_bands
@@ -2181,8 +2196,10 @@ TP_RANGE_TITLE = "TP Range in Mbps (Sum of Cell Count)"
 # ≤3 includes 3. ≥10 includes 10. The middle bins do not overlap.
 TP_RANGE_LABELS = ("≤3", "3–4", "4–5", "5–7", "7–8", "8–9", "9–10", "≥10")
 TP_NOTE = (
-    "TP Range counts the cells of that ERBS, or every cell of the site, and L900 is included. "
-    "OSS 4H/1H throughput, volume, users, and PRB still drop L900. "
+    "TP Range counts capacity cells only. L900 is excluded. "
+    "An ERBS or site that has only L09 cells has a blank TP Range, not zeros. "
+    "ERBS Band and the site Band still list L09 when that layer is present. "
+    "OSS 4H/1H throughput, volume, users, and PRB also drop L900. "
     "The cell uses the site's busy hours. "
     "1 BusyHour is the top hour on each of the 3 dates (3 hours). "
     "4 BusyHour is the top 4 hours on each of the 3 dates (12 hours). "
@@ -2282,7 +2299,8 @@ def write_site_list(
             f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
             "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
             "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
-            "ERBS Band and the TP Range counts use that ERBS's own cells, and those counts keep L900. "
+            "ERBS Band lists the layers on that ERBS, including L09. "
+            "TP Range counts the capacity cells only. An ERBS with only L09 cells has a blank TP Range. "
             "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
             "BH Flag 1H is Yes when either 1 BusyHour block matches: "
             "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
@@ -2866,7 +2884,7 @@ def write_issue_snapshots(
             pack = (erbs_tp or {}).get(site) or {}
             tp_busy = dict(busy)
             for *_rest, prefix in OSS_BLOCKS:
-                tp_busy[f"tp_bins_{prefix}"] = pack.get(prefix, [0] * len(TP_RANGE_LABELS))
+                tp_busy[f"tp_bins_{prefix}"] = pack.get(prefix) if prefix in pack else [0] * len(TP_RANGE_LABELS)
         _chart_tp_range_table(ws, top, tp_busy, side_formats)
         for rr in range(top + 4, top + block):
             ws.set_row(rr, 16)
