@@ -58,6 +58,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | File | Contents |
 |---|---|
 | `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v23.xlsx` | v22 ERBS dashboard and `1. Site List` kept. Site Level Dashboard added underneath. New sheet `1. Site List_SiteLevel`. Site charts tagged on `2. HourlyChartOfIssueSites`. GeoPlot includes a physical site when any ERBS is an issue. The chart-page HTML stays at 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.html` | Web chart page. The Excel workbook stays `v22`, and the page header shows Excel v22. HTML files move on their own: 22.1 chart list, 22.2 All Sites tab, 22.3 OSS 1h blocks, 22.4 hourly axis like sheet 2, 22.5 smaller KPI and OSS blocks, 22.6 a narrower site list so the chart is wider. Open the latest, 22.6 |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |

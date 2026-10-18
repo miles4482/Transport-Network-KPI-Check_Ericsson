@@ -82,6 +82,19 @@ v11–v13: the FEG window was 3–5 Oct and the OSS window was 11–13 Oct, so H
 
 **5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. A site listed only by the license rule is drawn as Low. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
 
+### v23 Site level (Excel only)
+
+The ERBS dashboard and sheet `1. Site List` stay on the full ERBS / NodeId. v23 adds a second dashboard under that one.
+
+- Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, and `LEFT(EUtranCell Id, 7)`. `Cell Name` is the same column as `EUtranCell Id`. `NodeId` is the same kind of id as `ERBS`.
+- Site-hour Max DL = the SUM of `Max DL Capacity Usage (Mbps)` for every ERBS of that Site Name, on that date and hour. Example: CGPTA90 hour 0 = CGPTA90 + CGPTA90L.
+- Site license = the SUM of `dlBbCapacityNet` for every NodeId of that Site Name. Example: CGPTA90 = 225 + 300 = 525 Mbps. CGLHG01 = 375 + 75 + 750 = 1200 Mbps. `ulBbCapacityNet` is not used.
+- The three categories use the same floors as the ERBS dashboard. The site-level result is written under the ERBS dashboard, on sheet `1. Site List_SiteLevel`, and as extra charts on `2. HourlyChartOfIssueSites`.
+- Each chart has a tag on the row just above the plot: `ERBS` or `Site`. ERBS charts stay first, so `1. Site List` still opens the same chart.
+- OSS on the site-level list follows the previous cell rollup: L900 dropped, sums for volume and users, throughput and PRB from Num/Denom.
+- GeoPlot still draws one dot per physical site. The full site is plotted when any of its ERBS is an issue, and also when the site-level dashboard lists it. The dot keeps the worst grade.
+- HTML is not rebuilt in v23.
+
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
 Dhaka sample sites **DHAPT35** and **DHAPT48** designed the shape. They are not a name filter. Do not fail an Ericsson run because those two names are absent.

@@ -46,8 +46,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v23.xlsx"
 SITE_LIST_SHEET = "1. Site List"
+SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
+LEVEL_ERBS = "ERBS"
+LEVEL_SITE = "Site"
 GEO_FILE = "Physical_Site_Database_14Oct26.xlsx"
 TOUCH_LEVEL_NAME = "Below5%Peak"
 LICENSE_FILE = "DL_License_File.xlsb"
@@ -403,7 +406,18 @@ def _blank_or_num(ws, row: int, col: int, value: int, num_fmt, blank_fmt) -> Non
         ws.write_blank(row, col, None, blank_fmt)
 
 
-def _write_category_matrix(book, ws, styles, row: int, records: list[dict], license_records: list[dict], tf) -> int:
+def _write_category_matrix(
+    book,
+    ws,
+    styles,
+    row: int,
+    records: list[dict],
+    license_records: list[dict],
+    tf,
+    *,
+    entity: str = "ERBS",
+    list_sheet: str = SITE_LIST_SHEET,
+) -> int:
     """Dashboard category table: Tx Flat/Chocked, then Peak Touch, then License usage."""
     comment_fmt = book.add_format(
         {
@@ -504,8 +518,10 @@ def _write_category_matrix(book, ws, styles, row: int, records: list[dict], lice
     ws.set_row(row, 32)
     ws.merge_range(
         row, 0, row, 7,
-        "Grand Total adds the rows above, so an ERBS in License usage and also in Peak Touch or "
-        "Tx Flat/Chocked is counted twice here. Sheet 1. Site List and the charts keep that ERBS once.",
+        "Grand Total adds the rows above, so an "
+        f"{entity} in License usage and also in Peak Touch or "
+        "Tx Flat/Chocked is counted twice here. Sheet "
+        f"{list_sheet} and the charts keep that {entity} once.",
         styles["note"],
     )
     return row + 1
@@ -533,6 +549,7 @@ def write_dashboard(
     chart_index: dict[str, int] | None = None,
     license_summary: dict | None = None,
     oss_note: str = "",
+    site_level: dict | None = None,
 ) -> None:
     ws = book.add_worksheet("Dashboard")
     _page(ws, fcc.REPORT_TITLE)
@@ -681,9 +698,192 @@ def write_dashboard(
             row += 1
         row += 1
     if license_summary is not None:
-        _write_license_on_dashboard(book, ws, styles, row + 1, license_summary, chart_index or {})
+        row = _write_license_on_dashboard(book, ws, styles, row + 1, license_summary, chart_index or {})
+    if site_level is not None:
+        _write_site_level_dashboard(book, ws, styles, row + 2, site_level)
     ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
     ws.set_zoom(110)
+
+
+def _write_touch_detail(
+    ws,
+    styles,
+    row: int,
+    records: list[dict],
+    chart_index: dict[str, int],
+    *,
+    name_header: str,
+) -> int:
+    """Peak Touch and Tx Flat/Chocked tables. Names link to the chart sheet."""
+    headers = [
+        "No.",
+        name_header,
+        "Severity",
+        "Peak (Mbit/s)",
+        f"{TOUCH_LEVEL_NAME} (Mbit/s)",
+        "Touch hours",
+        "Total hours",
+        "Peak ratio (%)",
+        "Busy-hour touch (%)",
+        "Where touched",
+        "License (Mbps)",
+        "Gap (%)",
+    ]
+    indexed = list(enumerate(records))
+    sections: list[tuple[str, str, list]] = []
+    for name, _floor, rule in TX_BANDS:
+        group = [
+            (i, rec) for i, rec in indexed
+            if rec["category"] == CAT_TX and rec["severity"] == name
+        ]
+        sections.append((f"{CAT_TX} · {name}", f"{rule}. {TX_COMMENT}.", group))
+    for name, _floor in SEVERITY_BANDS:
+        group = [
+            (i, rec) for i, rec in indexed
+            if rec["category"] == CAT_PEAK and rec["severity"] == name
+        ]
+        sections.append((f"{CAT_PEAK} · {name}", PEAK_RULES[name], group))
+    for name, note, group in sections:
+        if not group:
+            continue
+        ws.set_row(row, 22)
+        ws.merge_range(
+            row, 0, row, 11,
+            f"{name}    ·    {len(group)} site{'s' if len(group) != 1 else ''}",
+            styles["section"],
+        )
+        row += 1
+        ws.set_row(row, 24)
+        ws.merge_range(row, 0, row, 11, note, styles["body"])
+        row += 1
+        ws.set_row(row, 30)
+        for col, text in enumerate(headers):
+            ws.write(row, col, text, styles["header"])
+        row += 1
+        for n_in_group, (i, rec) in enumerate(group):
+            zebra = n_in_group % 2 == 1
+            ws.set_row(row, 18)
+            nfmt = styles["num_z"] if zebra else styles["num"]
+            ifmt = styles["int_z"] if zebra else styles["int"]
+            cfmt = styles["center_z"] if zebra else styles["center"]
+            pfmt = styles["pct_z"] if zebra else styles["pct"]
+            link = styles["link_z"] if zebra else styles["link"]
+            chart_i = (chart_index or {}).get(rec["site"], i)
+            ws.write_number(row, 0, chart_i + 1, ifmt)
+            ws.write_url(
+                row, 1,
+                f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+                link,
+                string=rec["site"],
+            )
+            ws.write_string(row, 2, rec["severity"], styles[SEVERITY_STYLE[rec["severity"]]])
+            ws.write_number(row, 3, rec["peak"], nfmt)
+            ws.write_number(row, 4, rec["level"], nfmt)
+            ws.write_number(row, 5, rec["hours_on"], ifmt)
+            ws.write_number(row, 6, rec["hours_n"], ifmt)
+            ws.write_number(row, 7, rec["hours_pct"], pfmt)
+            ws.write_number(row, 8, rec["busy_pct"], pfmt)
+            ws.write_string(row, 9, rec["cap_when"], cfmt)
+            gap = rec.get("gap", float("nan"))
+            lic = rec.get("license_mbps", float("nan"))
+            if np.isfinite(lic):
+                ws.write_number(row, 10, float(lic), nfmt)
+            else:
+                ws.write_blank(row, 10, None, nfmt)
+            if np.isfinite(gap):
+                ws.write_number(row, 11, float(gap) * 100.0, pfmt)
+            else:
+                ws.write_blank(row, 11, None, nfmt)
+            row += 1
+        row += 1
+    return row
+
+
+def _write_site_level_dashboard(book, ws, styles, row: int, pack: dict) -> int:
+    """Second dashboard, under the ERBS dashboard. Same three categories on the site sum."""
+    records = pack["records"]
+    license_summary = pack.get("license_summary")
+    chart_index = pack.get("chart_index") or {}
+    n_sites = pack["n_sites"]
+    banner = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 16,
+            "bold": True,
+            "font_color": "#1F4E79",
+            "bg_color": "#FFF2CC",
+            "align": "left",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BF8F00",
+        }
+    )
+    tf = eric._tile_formats(book)
+    ws.set_row(row, 28)
+    ws.merge_range(row, 0, row, 11, "Site Level Dashboard", banner)
+    row += 1
+    ws.set_row(row, 96)
+    method = (
+        "Site Name = LEFT(ERBS, 7). One site can have more than one ERBS. "
+        f"Each hour is the SUM of {TRACE_COL} across those ERBS, for that date and that hour. "
+        "License is the SUM of dlBbCapacityNet across every NodeId with the same Site Name "
+        "(LEFT(NodeId, 7)). UL (ulBbCapacityNet) is not used. "
+        "The three categories use the same rules as the ERBS dashboard above. "
+        f"Peak = the highest hourly site sum. {TOUCH_LEVEL_NAME} = Peak × "
+        f"{100 - TOUCH_BAND * 100:.0f}%. An hour touches when the site sum is at or above {TOUCH_LEVEL_NAME}. "
+        "Tx Flat/Chocked: Gap = (License − Peak) / License is at least 10%. "
+        "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 15% to under 20%, "
+        "Decision 10% to under 15%. Comment is Tx Issues Suspected. "
+        "Peak Touch: peak ratio Severe ≥ 40%, High 30% to under 40%, "
+        "Medium 20% to under 30%, Low 10% to under 20%. Under 10% is not listed. "
+        "License usage: share of hours at ≥85% of the combined license, Severe ≥ 50%, "
+        "High 40% to under 50%, Medium 30% to under 40%, Low 20% to under 30%. "
+        f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
+        f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
+    )
+    ws.merge_range(row, 0, row, 11, method, styles["note"])
+    row += 1
+    license_records = (license_summary or {}).get("records") or []
+    n_peak = sum(1 for rec in records if rec["category"] == CAT_PEAK)
+    n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
+    row = eric._write_tiles(
+        ws,
+        row,
+        [
+            (0, "Sites checked", n_sites, False),
+            (2, CAT_PEAK, n_peak, False),
+            (4, CAT_TX, n_tx, True),
+            (6, CAT_LICENSE, len(license_records), True),
+        ],
+        tf,
+    )
+    row += 1
+    row = _write_category_matrix(
+        book, ws, styles, row, records, license_records, tf,
+        entity="site",
+        list_sheet=SITE_LIST_SITE_SHEET,
+    )
+    row += 2
+    row = _write_touch_detail(ws, styles, row, records, chart_index, name_header="Site Name")
+    if license_summary is not None:
+        use_pct = f"{LICENSE_USE * 100:.0f}"
+        intro = (
+            "dlBbCapacityNet is summed for every NodeId that shares the Site Name "
+            f"(LEFT({LICENSE_NODE_COL}, 7)). UL (ulBbCapacityNet) is not used. "
+            f"An hour counts when the site sum of {TRACE_COL} / that combined license "
+            f"≥ {use_pct}%. A site is listed when those hours are at least "
+            f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
+            "License usage type is that share of hours: Severe ≥ 50%, High 40% to under 50%, "
+            "Medium 30% to under 40%, Low 20% to under 30%. "
+            f"{license_summary['no_license']:,} sites have no positive combined license and are not scored."
+        )
+        row = _write_license_on_dashboard(
+            book, ws, styles, row + 1, license_summary, chart_index,
+            name_header="Site Name",
+            intro=intro,
+            checked_label="Sites in the FEG file",
+        )
+    return row
 
 
 def write_snapshots(book, styles, work, records, chart_start, chart_end) -> None:
@@ -889,6 +1089,57 @@ def write_hourly(book, styles, work, records) -> None:
     ws.set_zoom(110)
 
 
+def aggregate_to_site(raw: pd.DataFrame) -> pd.DataFrame:
+    """One row per Site Name, date, and hour. Max DL is the sum of the ERBS values.
+
+    Site Name is the first 7 characters of the ERBS. Duplicate ERBS-hours are
+    kept once (last row) before the sum, the same keep-last rule as the ERBS score.
+    """
+    erbs = raw[eric.ERIC_SITE_COL].astype(str).str.strip()
+    frame = pd.DataFrame(
+        {
+            "Date": fcc.parse_kpi_date(raw["Date"]),
+            "Hour": pd.to_numeric(raw["Hour"], errors="coerce"),
+            "_erbs": erbs,
+            eric.ERIC_SITE_COL: erbs.str[:7],
+            TRACE_COL: pd.to_numeric(raw[TRACE_COL], errors="coerce"),
+        }
+    )
+    frame = frame.dropna(subset=["Date", "Hour", "_erbs"])
+    frame = frame.loc[~frame["_erbs"].str.lower().isin(["", "nan", "none"])]
+    frame["Hour"] = frame["Hour"].astype(int)
+    frame = frame.sort_values(["_erbs", "Date", "Hour"]).drop_duplicates(
+        ["_erbs", "Date", "Hour"], keep="last"
+    )
+    grouped = frame.groupby(["Date", "Hour", eric.ERIC_SITE_COL], as_index=False)[TRACE_COL].sum(
+        min_count=1
+    )
+    # analyse_touch parses text dates such as 11-Oct. A Timestamp string does not.
+    grouped["Date"] = pd.to_datetime(grouped["Date"]).dt.strftime("%-d-%b")
+    return grouped
+
+
+def aggregate_license_to_site(lic: pd.DataFrame) -> pd.DataFrame:
+    """Combined DL license for a Site Name: sum of dlBbCapacityNet. UL is dropped.
+
+    One capacity per NodeId, then sum the NodeIds that share LEFT(NodeId, 7).
+    The NodeId column of the result is that Site Name, so the license match
+    lines up with the site-level FEG rows.
+    """
+    node = lic[LICENSE_NODE_COL].astype(str).str.strip()
+    frame = pd.DataFrame(
+        {
+            "node": node,
+            "site": node.str[:7],
+            LICENSE_CAP_COL: pd.to_numeric(lic[LICENSE_CAP_COL], errors="coerce"),
+        }
+    )
+    frame = frame.loc[~frame["node"].str.lower().isin(["", "nan", "none"])]
+    frame = frame.drop_duplicates("node", keep="last")
+    grouped = frame.groupby("site", as_index=False)[LICENSE_CAP_COL].sum(min_count=1)
+    return grouped.rename(columns={"site": LICENSE_NODE_COL})
+
+
 def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
     """Sites whose Max DL usage sits at or above the license threshold.
 
@@ -954,8 +1205,19 @@ def analyse_license(raw: pd.DataFrame, lic: pd.DataFrame) -> dict:
     }
 
 
-def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart_index: dict[str, int]) -> None:
-    """License list on the Dashboard sheet. Site names jump to the shared charts."""
+def _write_license_on_dashboard(
+    book,
+    ws,
+    styles,
+    row: int,
+    summary: dict,
+    chart_index: dict[str, int],
+    *,
+    name_header: str = "ERBS",
+    intro: str | None = None,
+    checked_label: str = "ERBS in the FEG file",
+) -> int:
+    """License list on the Dashboard sheet. Names jump to the shared charts."""
     records = summary["records"]
     use_pct = f"{LICENSE_USE * 100:.0f}"
     group = book.add_format(
@@ -976,14 +1238,17 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         0,
         row,
         9,
-        f"dlBbCapacityNet is the DL capacity license installed on the node "
-        f"({LICENSE_NODE_COL} = ERBS). An hour counts when {TRACE_COL} / dlBbCapacityNet "
-        f"≥ {use_pct}%. A site is listed when those hours are at least "
-        f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
-        f"License usage type is that share of hours: Severe ≥ 50%, High 40% to under 50%, "
-        f"Medium 30% to under 40%, Low 20% to under 30%. "
-        f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
-        f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored.",
+        intro
+        or (
+            f"dlBbCapacityNet is the DL capacity license installed on the node "
+            f"({LICENSE_NODE_COL} = ERBS). An hour counts when {TRACE_COL} / dlBbCapacityNet "
+            f"≥ {use_pct}%. A site is listed when those hours are at least "
+            f"{LICENSE_HOURS_PCT:.0f}% of its hours. "
+            f"License usage type is that share of hours: Severe ≥ 50%, High 40% to under 50%, "
+            f"Medium 30% to under 40%, Low 20% to under 30%. "
+            f"{summary['no_license']:,} ERBS have no row in {LICENSE_FILE} and "
+            f"{summary['bad_license']:,} have a license of 0 or below, so they are not scored."
+        ),
         styles["note"],
     )
     row += 1
@@ -991,7 +1256,7 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
         ws,
         row,
         [
-            (0, "ERBS in the FEG file", summary["feg_sites"], False),
+            (0, checked_label, summary["feg_sites"], False),
             (2, "Matched to a license", summary["matched"], False),
             (4, "License scored (> 0)", summary["scored"], False),
             (
@@ -1035,7 +1300,7 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
 
     headers = [
         "No.",
-        "ERBS",
+        name_header,
         "License (Mbps)",
         f"Hours ≥{use_pct}%",
         "Total hours",
@@ -1087,6 +1352,7 @@ def _write_license_on_dashboard(book, ws, styles, row: int, summary: dict, chart
             ws.write_string(row, 9, rec["cap_when"], cfmt)
             row += 1
         row += 1
+    return row
 
 
 def write_license_dashboard(book, styles, source_name, period_txt, summary: dict) -> None:
@@ -1698,14 +1964,21 @@ def write_site_list(
     period_txt,
     charts: list[dict],
     busy_by_code: dict[str, dict],
+    *,
+    sheet_name: str = SITE_LIST_SHEET,
+    name_header: str = "ERBS",
+    chart_offset: int = 0,
+    title: str = "Site list — Dashboard issue sites",
+    intro: str | None = None,
+    tab_color: str = "#375623",
 ) -> None:
     """Issue sites from the Dashboard. Tech, Site Type, and OSS 4H/1H are filled."""
-    ws = book.add_worksheet(SITE_LIST_SHEET)
+    ws = book.add_worksheet(sheet_name)
     _page(ws, "Site list", fit_width=False)
     ws.set_footer("&L&8OSS 4H/1H from the cell KPI, rolled to the first 7 characters of the ERBS&R&8Page &P of &N")
-    ws.set_tab_color("#375623")
+    ws.set_tab_color(tab_color)
     use_pct = f"{LICENSE_USE * 100:.0f}"
-    left = ["No.", "ERBS", "Tech", "Site Type", "Category", "Severity"]
+    left = ["No.", name_header, "Tech", "Site Type", "Category", "Severity"]
     bh_flag = [
         "DL Throughput<7Mbps",
         "Data Vol>50GB",
@@ -1737,20 +2010,23 @@ def write_site_list(
             ws.set_column(col, col, 18)
             col += 1
     ws.set_row(0, 22)
-    ws.merge_range(0, 0, 0, col - 1, "Site list — Dashboard issue sites", styles["title"])
-    ws.set_row(1, 48)
+    ws.merge_range(0, 0, 0, col - 1, title, styles["title"])
+    ws.set_row(1, 64 if intro else 48)
     ws.merge_range(
         1, 0, 1, col - 1,
-        f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
-        "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
-        "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
-        "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
-        "BH Flag 1H is Yes when either 1 BusyHour block matches: "
-        "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
-        "DL Throughput<5Mbps at or below 5 Mbps, Data Vol>100GB at least 100 GB. "
-        "A blank cell means that 1h value is missing in both blocks. "
-        "There is no Avg peak line. Below5%Peak is Peak × 95%. "
-        "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected.",
+        intro
+        or (
+            f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
+            "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
+            "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
+            "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
+            "BH Flag 1H is Yes when either 1 BusyHour block matches: "
+            "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
+            "DL Throughput<5Mbps at or below 5 Mbps, Data Vol>100GB at least 100 GB. "
+            "A blank cell means that 1h value is missing in both blocks. "
+            "There is no Avg peak line. Below5%Peak is Peak × 95%. "
+            "Tx Flat/Chocked: listed, and (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected."
+        ),
         styles["note"],
     )
     header_row = 3
@@ -1859,9 +2135,13 @@ def write_site_list(
         stat = item.get("lic_stat")
         severity = item.get("display_severity") or (touch["severity"] if touch else "—")
         where_touch = touch["cap_when"] if touch else lines["cap_when"]
-        ws.write_number(row, 0, i + 1, ifmt)
+        chart_i = chart_offset + i
+        ws.write_number(row, 0, chart_i + 1, ifmt)
         ws.write_url(
-            row, 1, f"internal:'{fcc.SNAP_SHEET}'!A{i * fcc.BLOCK_ROWS + 1}", link, string=item["site"]
+            row, 1,
+            f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+            link,
+            string=item["site"],
         )
         ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
         ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
@@ -1976,8 +2256,12 @@ def write_issue_snapshots(
     chart_start,
     chart_end,
     busy_by_code: dict[str, dict] | None = None,
+    work_by_level: dict[str, pd.DataFrame] | None = None,
 ) -> None:
-    """One chart per issue site. Every chart has the same five lines."""
+    """One chart per issue site. Every chart has the same five lines.
+
+    A tag on the row just above the plot says ERBS or Site.
+    """
     ws = book.add_worksheet(fcc.SNAP_SHEET)
     _page(ws, "Hourly chart of issue sites", fit_width=False)
     ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
@@ -1998,9 +2282,37 @@ def write_issue_snapshots(
     block = fcc.BLOCK_ROWS
     cat_fmt = book.add_format({"font_name": "Calibri", "font_size": 8, "align": "center"})
     chart_days = list(pd.date_range(chart_start, chart_end, freq="D"))
-    by_site = {site: g for site, g in work.groupby("eNodeB Name", sort=False)}
+    frames = work_by_level or {LEVEL_ERBS: work}
+    by_level = {
+        level: {site: group for site, group in frame.groupby("eNodeB Name", sort=False)}
+        for level, frame in frames.items()
+    }
     use_pct = LICENSE_USE * 100
     cols = 7
+    tag_formats = {
+        LEVEL_ERBS: book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 12,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#1F4E79",
+            }
+        ),
+        LEVEL_SITE: book.add_format(
+            {
+                "font_name": "Calibri",
+                "bold": True,
+                "font_size": 12,
+                "font_color": "white",
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": "#C65911",
+            }
+        ),
+    }
 
     print(f"Writing {len(charts)} issue charts...")
     for i, item in enumerate(charts):
@@ -2008,9 +2320,10 @@ def write_issue_snapshots(
             print(f"  charts {i}/{len(charts)}", flush=True)
         top = i * block
         site = item["site"]
+        level = item.get("level") or LEVEL_ERBS
         touch = item["touch"]
         lic = item["license"]
-        s = by_site.get(site)
+        s = by_level.get(level, {}).get(site)
         if s is None:
             s = work.iloc[0:0]
         else:
@@ -2088,7 +2401,8 @@ def write_issue_snapshots(
             ws.merge_range(top + 1, col, top + 1, col + 1, label, styles["kpi_label"])
         for col, _label, value in labels:
             ws.merge_range(top + 2, col, top + 2, col + 1, value, styles["kpi_value"])
-        ws.set_row(top + 3, 8)
+        ws.set_row(top + 3, 18)
+        ws.merge_range(top + 3, 0, top + 3, 2, level, tag_formats[level])
 
         chart = book.add_chart({"type": "line"})
         chart.show_blanks_as("gap")
@@ -2154,8 +2468,14 @@ def write_issue_snapshots(
         ws.set_h_pagebreaks([i * block for i in range(1, len(charts))])
 
 
-def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
-    """Hourly rows for every charted site, in chart order."""
+def write_issue_hourly(
+    book,
+    styles,
+    work,
+    charts: list[dict],
+    work_by_level: dict[str, pd.DataFrame] | None = None,
+) -> None:
+    """Hourly rows for every charted ERBS and site, in chart order."""
     ws = book.add_worksheet("3. Hourly KPI")
     _page(ws, "Hourly KPI — issue sites")
     ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
@@ -2172,15 +2492,17 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
         "dlBbCapacityNet",
         "Usage / license (%)",
         f"≥{use_pct}% of license",
+        "Level",
     ]
-    for i, w in enumerate([14, 10, 16, 28, 14, 16, 18, 18, 20, 18]):
+    for i, w in enumerate([14, 10, 16, 28, 14, 16, 18, 18, 20, 18, 12]):
         ws.set_column(i, i, w)
     ws.set_row(0, 28)
     ws.merge_range(0, 0, 0, len(headers) - 1, "Hourly KPI — issue sites", styles["title"])
-    ws.set_row(1, 18)
+    ws.set_row(1, 32)
     ws.merge_range(
         1, 0, 1, len(headers) - 1,
-        f"{REPORT_PERIOD}    ·    hourly    ·    every issue site",
+        f"{REPORT_PERIOD}    ·    hourly    ·    ERBS rows, then Site rows. "
+        "A Site row is the SUM of Max DL Capacity Usage for that Site Name, date, and hour.",
         styles["subtitle"],
     )
     header_row = 2
@@ -2188,18 +2510,36 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
     for col, text in enumerate(headers):
         ws.write(header_row, col, text, styles["header"])
 
-    order = {item["site"]: i for i, item in enumerate(charts)}
+    sources = work_by_level or {LEVEL_ERBS: work}
+    parts = []
+    for level_name, frame in sources.items():
+        names = {
+            item["site"]
+            for item in charts
+            if (item.get("level") or LEVEL_ERBS) == level_name
+        }
+        part = frame.loc[frame["eNodeB Name"].isin(names)].copy()
+        part["Level"] = level_name
+        parts.append(part)
+    hourly = pd.concat(parts, ignore_index=True) if parts else work.iloc[0:0].copy()
+    order = {
+        (item.get("level") or LEVEL_ERBS, item["site"]): i for i, item in enumerate(charts)
+    }
     license_of = {
-        item["site"]: item["license_mbps"]
+        (item.get("level") or LEVEL_ERBS, item["site"]): item["license_mbps"]
         for item in charts
         if np.isfinite(item.get("license_mbps", float("nan")))
     }
-    hourly = work.loc[work["eNodeB Name"].isin(order)].copy()
-    hourly["_order"] = hourly["eNodeB Name"].map(order)
+    hourly["_order"] = [
+        order[(level_name, site)]
+        for level_name, site in zip(hourly["Level"], hourly["eNodeB Name"])
+    ]
     hourly = hourly.sort_values(["_order", "ts"])
-    parity = {item["site"]: i % 2 for i, item in enumerate(charts)}
+    parity = {
+        (item.get("level") or LEVEL_ERBS, item["site"]): i % 2 for i, item in enumerate(charts)
+    }
     excel_row = header_row
-    for site, date, hour, rx, on_cap, peak, level in zip(
+    for site, date, hour, rx, on_cap, peak, touch_level, level_name in zip(
         hourly["eNodeB Name"],
         hourly["Date"],
         hourly["Hour"],
@@ -2207,9 +2547,11 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
         hourly["OnCap"],
         hourly["Peak"],
         hourly["TouchLevel"],
+        hourly["Level"],
     ):
         excel_row += 1
-        z = "_z" if parity[site] else ""
+        key = (level_name, site)
+        z = "_z" if parity[key] else ""
         ws.write_datetime(excel_row, 0, date.to_pydatetime(), styles["date" + z])
         ws.write_datetime(excel_row, 1, time(int(hour), 0), styles["time" + z])
         ws.write_string(excel_row, 2, site, styles["text" + z])
@@ -2224,8 +2566,8 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
         else:
             ws.write_string(excel_row, 4, "Yes" if bool(on_cap) else "No", styles["center" + z])
             ws.write_number(excel_row, 5, float(peak), styles["num" + z])
-            ws.write_number(excel_row, 6, float(level), styles["num" + z])
-        lic = license_of.get(site)
+            ws.write_number(excel_row, 6, float(touch_level), styles["num" + z])
+        lic = license_of.get(key)
         if lic is None or not np.isfinite(rx):
             ws.write_blank(excel_row, 7, None, styles["num" + z])
             ws.write_blank(excel_row, 8, None, styles["pct" + z])
@@ -2236,10 +2578,29 @@ def write_issue_hourly(book, styles, work, charts: list[dict]) -> None:
             ws.write_string(
                 excel_row, 9, "Yes" if float(rx) >= LICENSE_USE * float(lic) else "No", styles["center" + z]
             )
+        ws.write_string(excel_row, 10, level_name, styles["center" + z])
     ws.autofilter(header_row, 0, max(excel_row, header_row + 1), len(headers) - 1)
     ws.repeat_rows(header_row, header_row)
     ws.freeze_panes(header_row + 1, 0)
     ws.set_zoom(110)
+
+
+def _prepare_charts(
+    work: pd.DataFrame,
+    records: list[dict],
+    license_summary: dict | None,
+    level: str,
+) -> list[dict]:
+    """Score Tx, attach the five chart lines, and stamp the ERBS or Site tag."""
+    license_records = license_summary["records"] if license_summary else []
+    charts = issue_charts(records, license_records)
+    stats = license_summary.get("stats_by_site", {}) if license_summary else {}
+    attach_chart_lines(work, charts, stats)
+    apply_tx(records, stats)
+    stamp_charts(charts, records)
+    for item in charts:
+        item["level"] = level
+    return charts
 
 
 def write_workbook(
@@ -2248,6 +2609,9 @@ def write_workbook(
     work: pd.DataFrame,
     records: list[dict],
     license_summary: dict | None = None,
+    site_work: pd.DataFrame | None = None,
+    site_records: list[dict] | None = None,
+    site_license_summary: dict | None = None,
 ) -> None:
     import xlsxwriter
 
@@ -2264,43 +2628,84 @@ def write_workbook(
     fcc.REPORT_PERIOD = period_txt
     chart_end = period_end.normalize()
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
-    license_records = license_summary["records"] if license_summary else []
-    charts = issue_charts(records, license_records)
-    # License results sit on the Dashboard, under the Peak-touch section.
-    # One chart per site from either list, and both tables link to it.
-    stats = license_summary.get("stats_by_site", {}) if license_summary else {}
-    attach_chart_lines(work, charts, stats)
-    apply_tx(records, stats)
-    stamp_charts(charts, records)
+    charts = _prepare_charts(work, records, license_summary, LEVEL_ERBS)
     chart_index = {item["site"]: i for i, item in enumerate(charts)}
+    site_charts: list[dict] = []
+    site_chart_index: dict[str, int] = {}
+    if site_work is not None and site_records is not None:
+        site_charts = _prepare_charts(site_work, site_records, site_license_summary, LEVEL_SITE)
+        site_chart_index = {
+            item["site"]: len(charts) + i for i, item in enumerate(site_charts)
+        }
     n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
-    print(f"{CAT_TX} (gap ≥ {GAP_MIN * 100:.0f}%): {n_tx}  ·  charts {len(charts)}", flush=True)
+    n_tx_site = sum(1 for rec in (site_records or []) if rec["category"] == CAT_TX)
+    print(
+        f"{CAT_TX} (gap ≥ {GAP_MIN * 100:.0f}%): ERBS {n_tx}  ·  Site {n_tx_site}  ·  "
+        f"charts {len(charts) + len(site_charts)}",
+        flush=True,
+    )
     geo, tech_by_code, type_by_code = load_physical()
     attach_site_identity(charts, tech_by_code, type_by_code)
+    if site_charts:
+        attach_site_identity(site_charts, tech_by_code, type_by_code)
     busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
     busy_by_code = {row["site"]: row for row in busy_rows}
+    site_level = None
+    if site_work is not None and site_records is not None:
+        site_level = {
+            "records": site_records,
+            "license_summary": site_license_summary,
+            "chart_index": site_chart_index,
+            "n_sites": int(site_work["eNodeB Name"].nunique()),
+        }
     write_dashboard(
         book, styles, source_name, period_txt, n_sites, n_scored, records,
         link_charts=True,
         chart_index=chart_index,
         license_summary=license_summary,
         oss_note=oss_note,
+        site_level=site_level,
     )
     write_site_list(book, styles, period_txt, charts, busy_by_code)
+    if site_charts:
+        write_site_list(
+            book, styles, period_txt, site_charts, busy_by_code,
+            sheet_name=SITE_LIST_SITE_SHEET,
+            name_header="Site Name",
+            chart_offset=len(charts),
+            title="Site list — site level",
+            tab_color="#C65911",
+            intro=(
+                f"{period_txt}. Site Name = LEFT(ERBS, 7). "
+                "These rows are the sites on the Site Level Dashboard. "
+                "Peak is the highest hourly SUM of Max DL Capacity Usage across the ERBS of that site. "
+                "License is the SUM of dlBbCapacityNet for the NodeIds of that site. UL is not used. "
+                "OSS 4H/1H follows the previous rule: Site Name = LEFT(EUtranCell Id, 7), L900 cells dropped, "
+                "Data Volume, Max User, and Mean User summed, DL Throughput = Num/Denom, "
+                "DL PRB = (Num/Denom) × 100. "
+                "BH Flag 1H uses those same 1h blocks. "
+                "The name links to the Site chart on 2. HourlyChartOfIssueSites."
+            ),
+        )
+    all_charts = charts + site_charts
+    work_by_level = {LEVEL_ERBS: work}
+    if site_work is not None:
+        work_by_level[LEVEL_SITE] = site_work
     if license_summary is not None:
         write_issue_snapshots(
-            book, styles, work, charts, chart_start, chart_end, busy_by_code
+            book, styles, work, all_charts, chart_start, chart_end, busy_by_code, work_by_level
         )
         print("Writing hourly KPI...", flush=True)
-        write_issue_hourly(book, styles, work, charts)
+        write_issue_hourly(book, styles, work, all_charts, work_by_level)
     else:
         write_snapshots(book, styles, work, records, chart_start, chart_end)
         print("Writing hourly KPI...", flush=True)
         write_hourly(book, styles, work, records)
-    geo_records, license_only_sites = geo_issue_records(charts)
+    geo_records, license_only_sites = geo_issue_records(all_charts)
     print(
         f"GeoPlot: {len(geo_records)} physical sites from {len(charts)} ERBS "
-        f"({license_only_sites} license-only, drawn as Low)",
+        f"and {len(site_charts)} site-level findings "
+        f"({license_only_sites} license-only)",
         flush=True,
     )
     fcc.GEO_FILE = GEO_FILE
@@ -2310,9 +2715,10 @@ def write_workbook(
     geo_ws.merge_range(
         4, 0, 4, 17,
         "Each dot is one physical site (the first 7 characters of the ERBS). "
-        "Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate. "
-        "Map severity is the site's category grade. Medium is drawn as Moderate. Decision is the 10% to under 15% gap. "
-        f"A site listed only by the license rule is drawn as Low ({license_only_sites} sites).",
+        "The full site is plotted when any of its ERBS is an issue, and also when the "
+        "Site Level Dashboard lists that site. Severity is the worst grade of those findings. "
+        "Medium is drawn as Moderate. Decision is the 10% to under 15% gap. "
+        f"{license_only_sites} sites are listed only by the license rule.",
         styles["note"],
     )
     link_records = [{"site": item["site_code"]} for item in charts]
@@ -2378,8 +2784,32 @@ def main() -> None:
         )
     else:
         print(f"License file not found ({license_path}); license section not written")
+        lic = None
+    site_raw = aggregate_to_site(raw)
+    site_work, site_records = analyse_touch(site_raw)
+    print(
+        f"Site level: {site_work['eNodeB Name'].nunique():,} sites  ·  "
+        f"listed on peak ratio {len(site_records):,}",
+        flush=True,
+    )
+    site_license_summary = None
+    if lic is not None:
+        site_lic = aggregate_license_to_site(lic)
+        for code in ("CGPTA90", "CGLHG01"):
+            hit = site_lic.loc[site_lic[LICENSE_NODE_COL] == code, LICENSE_CAP_COL]
+            if len(hit):
+                print(f"  Combined DL license {code}: {float(hit.iloc[0]):.0f} Mbps", flush=True)
+        site_license_summary = analyse_license(site_raw, site_lic)
+        print(
+            f"Site license: {site_license_summary['matched']:,} sites matched, "
+            f"{len(site_license_summary['records']):,} listed",
+            flush=True,
+        )
     output = Path(args.output)
-    write_workbook(output, source.name, work, records, license_summary)
+    write_workbook(
+        output, source.name, work, records, license_summary,
+        site_work, site_records, site_license_summary,
+    )
 
     by_sev = defaultdict(int)
     by_when = defaultdict(int)
