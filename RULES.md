@@ -101,6 +101,18 @@ On `1. Site List` and `1. Site List_SiteLevel`, each of the four OSS blocks (Dat
 
 A cell is counted once for that block. Its DL throughput is Num/Denom summed over the block's busy hours. ≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The middle bins do not overlap. L900 cells are dropped, the same cells behind the block's DL throughput. The cell's site is the first 7 characters of `EUtranCell Id`. Each ERBS of a site shows that site's cell counts, because the cell name does not carry the B01 / _01 node id. The chart-page HTML is not rebuilt.
 
+### v26 ERBS cells, including L900, in the TP Range
+
+TP Range cell counts now follow the ERBS, and L900 is included. OSS 4H/1H throughput, volume, users, and PRB still drop L900.
+
+- A cell's band is `L09` when characters 8–10 start with `L09`, `L21` for `L21`, `L26` for `L26`, and `L18` for every other cell (LA, LB, LC, and the rest).
+- L09 cells belong to the ERBS whose id equals the site code, when that ERBS exists. Example: `CGPTA90L09A` belongs to `CGPTA90`.
+- L18, L21, and L26 cells belong to the ERBS whose id is the site code plus `L`, when that ERBS exists. Example: `CGPTA90L21A`, `CGPTA90L26A1`, and `CGPTA90LA` belong to `CGPTA90L`.
+- An ERBS that is the only node of its site keeps every cell, coverage and capacity together.
+- The site row counts each cell once, so site CGPTA90 is the 3 L09 cells plus the 12 L18/L21/L26 cells.
+- `1. Site List` has an **ERBS Band** column after Site Type. One band reads `L09 Cells`. Several bands read `L18+L21+L26 cells`.
+- The chart TP Range table uses the same split: an ERBS chart shows that ERBS's cells, and a Site chart shows every cell of the site.
+
 ### v25 TP Range beside the chart
 
 Site busy hours are the cell busy hours. Over 11–13 Oct (3 dates):

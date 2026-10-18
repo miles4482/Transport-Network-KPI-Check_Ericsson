@@ -46,7 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v25.xlsx"
+OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v26.xlsx"
 SITE_LIST_SHEET = "1. Site List"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -1852,8 +1852,8 @@ def prepare_oss(
     charts: list[dict],
     tech_by_code: dict[str, str],
     type_by_code: dict[str, str],
-) -> tuple[list[dict], list[str], str]:
-    """Score 7/4/1 busy hours. Returns busy rows, missing-FEG site codes, and a note."""
+) -> tuple[list[dict], list[str], str, dict[str, dict]]:
+    """Score 7/4/1 busy hours. Returns busy rows, missing-FEG codes, a note, and ERBS TP bins."""
     oss = load_ericsson_oss()
     start = pd.Timestamp(oss["Date"].min())
     end = pd.Timestamp(oss["Date"].max())
@@ -1894,11 +1894,12 @@ def prepare_oss(
         f"BusyHour sites {len(busy):,}  ·  OSS sites missing from FEG {len(missing):,}",
         flush=True,
     )
-    attach_tp_cell_counts(busy)
-    return busy, missing, note
+    erbs_names = set(work["eNodeB Name"].astype(str).str.strip())
+    erbs_tp = attach_tp_cell_counts(busy, erbs_names)
+    return busy, missing, note, erbs_tp
 
 
-CELL_TP_CACHE = Path("/tmp/eric_oss_cell_tp.pkl")
+CELL_TP_CACHE = Path("/tmp/eric_oss_cell_tp_v26.pkl")
 
 
 def _bin_cell_tp(tp: np.ndarray) -> np.ndarray:
@@ -1912,7 +1913,11 @@ def _bin_cell_tp(tp: np.ndarray) -> np.ndarray:
 
 
 def load_cell_throughput() -> pd.DataFrame:
-    """Capacity cells with DL throughput Num/Denom. Site is the first 7 characters."""
+    """Every cell, including L900, with DL throughput Num/Denom.
+
+    Site is the first 7 characters. OSS KPI rollup still drops L900. This frame
+    is only for the TP Range cell counts.
+    """
     parts = sorted(Path("/workspace").glob(OSS_PART_GLOB))
     if not parts:
         raise SystemExit(f"No OSS parts matching {OSS_PART_GLOB}")
@@ -1938,7 +1943,7 @@ def load_cell_throughput() -> pd.DataFrame:
         frames.append(pd.read_csv(csv_path, usecols=usecols))
     raw = pd.concat(frames, ignore_index=True)
     cell = raw["EUtranCell Id"].astype(str).str.strip()
-    keep = fcc._capacity_mask(cell) & ~cell.str.lower().isin(["", "nan", "none"])
+    keep = ~cell.str.lower().isin(["", "nan", "none"])
     raw = raw.loc[keep]
     cell = cell.loc[keep]
     text = raw["Date"].astype(str).str.strip()
@@ -1964,11 +1969,107 @@ def load_cell_throughput() -> pd.DataFrame:
     return frame
 
 
-def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
-    """Count cells in each DL throughput bin for the 4h and 1h busy-hour blocks."""
+BAND_ORDER = ("L09", "L18", "L21", "L26")
+
+
+def cell_band_label(name: str) -> str:
+    """Short band of a cell. L09 is L900. Anything other than L21/L26 is L18."""
+    token = str(name)[7:10].upper()
+    if token.startswith("L09"):
+        return "L09"
+    if token.startswith("L21"):
+        return "L21"
+    if token.startswith("L26"):
+        return "L26"
+    return "L18"
+
+
+def erbs_band_text(bands: set[str]) -> str:
+    """One band is 'L09 Cells'. Several bands are 'L18+L21+L26 cells'."""
+    ordered = [band for band in BAND_ORDER if band in bands]
+    if not ordered:
+        return "—"
+    if len(ordered) == 1:
+        return f"{ordered[0]} Cells"
+    return "+".join(ordered) + " cells"
+
+
+def _owners_for_site(site: str, nodes: list[str], cell_names: list[str]) -> dict[str, list[str]]:
+    """Map each cell to the ERBS ids that own it.
+
+    L09 goes to the ERBS that equals the site code when that ERBS exists.
+    L18, L21, and L26 go to the ERBS that is the site code plus L when that
+    ERBS exists. One ERBS at the site keeps every cell. A cell whose node is
+    not written in the name is counted on each remaining candidate, so the
+    row is not left blank.
+    """
+    nodes = sorted(set(nodes))
+    out: dict[str, list[str]] = {cell: [] for cell in cell_names}
+    if not nodes:
+        return out
+    bare = site if site in nodes else None
+    lnode = site + "L" if site + "L" in nodes else None
+    non_l = [node for node in nodes if not node.endswith("L")]
+    underscore = [node for node in nodes if node.endswith("_01")]
+    if len(nodes) == 1:
+        cov = cap = nodes[0]
+    else:
+        if bare is not None:
+            cov = bare
+        elif len(underscore) == 1:
+            cov = underscore[0]
+        elif len(non_l) == 1:
+            cov = non_l[0]
+        else:
+            cov = None
+        if lnode is not None:
+            cap = lnode
+        else:
+            rest = [node for node in nodes if node != cov]
+            cap = rest[0] if len(rest) == 1 else None
+    share_cov = non_l or nodes
+    share_cap = [node for node in nodes if node != cov] or nodes
+    for cell in cell_names:
+        if cell_band_label(cell) == "L09":
+            out[cell] = [cov] if cov else list(share_cov)
+        else:
+            out[cell] = [cap] if cap else list(share_cap)
+    return out
+
+
+def _empty_erbs_pack() -> dict:
+    pack = {"band": "—"}
+    for *_rest, prefix in OSS_BLOCKS:
+        pack[prefix] = [0] * len(TP_RANGE_LABELS)
+    return pack
+
+
+def attach_tp_cell_counts(busy_rows: list[dict], erbs_names: set[str]) -> dict[str, dict]:
+    """Site bins include every cell. ERBS bins include only that ERBS's cells.
+
+    L900 is included here. The OSS KPI blocks are unchanged.
+    """
+    erbs_tp = {name: _empty_erbs_pack() for name in erbs_names}
     if not busy_rows:
-        return
+        return erbs_tp
     cells = load_cell_throughput()
+    unique = cells[["site", "cell"]].drop_duplicates()
+    nodes_by: dict[str, list[str]] = defaultdict(list)
+    for name in erbs_names:
+        nodes_by[name[:7]].append(name)
+    owned_rows: list[tuple[str, str, str]] = []
+    bands: dict[str, set[str]] = defaultdict(set)
+    for site, group in unique.groupby("site", sort=False):
+        mapping = _owners_for_site(site, nodes_by.get(site, []), group["cell"].tolist())
+        for cell, owners in mapping.items():
+            band = cell_band_label(cell)
+            for erbs in owners:
+                owned_rows.append((cell, erbs, band))
+                bands[erbs].add(band)
+    for erbs, held in bands.items():
+        if erbs in erbs_tp:
+            erbs_tp[erbs]["band"] = erbs_band_text(held)
+    owned = pd.DataFrame(owned_rows, columns=["cell", "erbs", "band"])
     prefixes = tuple(prefix for *_rest, prefix in OSS_BLOCKS)
     for prefix in prefixes:
         keys = [
@@ -1976,7 +2077,8 @@ def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
             for row in busy_rows
             for day, hour in (row.get(f"{prefix}_picked") or [])
         ]
-        counts: dict[str, list[int]] = {}
+        site_counts: dict[str, list[int]] = {}
+        erbs_counts: dict[str, list[int]] = {}
         if keys:
             key_df = pd.DataFrame(keys, columns=["site", "Date", "Hour"]).drop_duplicates()
             key_df["Hour"] = key_df["Hour"].astype(np.int16)
@@ -1987,15 +2089,26 @@ def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
                 pooled["bin"] = _bin_cell_tp((pooled["n"] / pooled["d"]).to_numpy())
                 sized = pooled.groupby(["site", "bin"], sort=False).size()
                 for (site, bin_id), count in sized.items():
-                    row_bins = counts.get(site)
+                    row_bins = site_counts.get(site)
                     if row_bins is None:
                         row_bins = [0] * len(TP_RANGE_LABELS)
-                        counts[site] = row_bins
+                        site_counts[site] = row_bins
                     row_bins[int(bin_id)] = int(count)
+                tagged = pooled.reset_index().merge(owned, on="cell", how="inner")
+                if not tagged.empty:
+                    sized_erbs = tagged.groupby(["erbs", "bin"], sort=False).size()
+                    for (erbs, bin_id), count in sized_erbs.items():
+                        row_bins = erbs_counts.get(erbs)
+                        if row_bins is None:
+                            row_bins = [0] * len(TP_RANGE_LABELS)
+                            erbs_counts[erbs] = row_bins
+                        row_bins[int(bin_id)] = int(count)
         for row in busy_rows:
-            row[f"tp_bins_{prefix}"] = counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
+            row[f"tp_bins_{prefix}"] = site_counts.get(row["site"], [0] * len(TP_RANGE_LABELS))
+        for erbs, row_bins in erbs_counts.items():
+            if erbs in erbs_tp:
+                erbs_tp[erbs][prefix] = row_bins
         filled = sum(1 for row in busy_rows if sum(row[f"tp_bins_{prefix}"]) > 0)
-        # 11–13 Oct is 3 dates. 1 BusyHour is 1 top hour × 3 dates. 4 BusyHour is 4 × 3.
         expected = 12 if prefix.endswith("4") else 3
         matched = sum(1 for row in busy_rows if len(row.get(f"{prefix}_picked") or []) == expected)
         print(
@@ -2003,6 +2116,14 @@ def attach_tp_cell_counts(busy_rows: list[dict]) -> None:
             f"on {matched:,} of {len(busy_rows):,} sites · {filled:,} sites with a cell count",
             flush=True,
         )
+    for sample in ("CGPTA90", "CGPTA90L"):
+        pack = erbs_tp.get(sample)
+        if pack:
+            print(
+                f"  {sample} band {pack['band']} · data4 cells {sum(pack['data4'])}",
+                flush=True,
+            )
+    return erbs_tp
 
 
 def _bh_yes(values: tuple[float, float], test) -> str | None:
@@ -2055,15 +2176,18 @@ TP_RANGE_TITLE = "TP Range in Mbps (Sum of Cell Count)"
 # ≤3 includes 3. ≥10 includes 10. The middle bins do not overlap.
 TP_RANGE_LABELS = ("≤3", "3–4", "4–5", "5–7", "7–8", "8–9", "9–10", "≥10")
 TP_NOTE = (
-    "TP Range counts capacity cells (L900 dropped). "
+    "TP Range counts the cells of that ERBS, or every cell of the site, and L900 is included. "
+    "OSS 4H/1H throughput, volume, users, and PRB still drop L900. "
     "The cell uses the site's busy hours. "
     "1 BusyHour is the top hour on each of the 3 dates (3 hours). "
     "4 BusyHour is the top 4 hours on each of the 3 dates (12 hours). "
     "DL throughput is the sum of Num divided by the sum of Denom over those hours, then one bin. "
-    "≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The bins between them do not overlap. "
-    "The cell's site is the first 7 characters of EUtranCell Id, so every ERBS of a site "
-    "shows that site's cell counts. "
-    "The same counts are on 2. HourlyChartOfIssueSites, to the right of the OSS KPI table."
+    "≤3 includes 3 Mbps. ≥10 includes 10 Mbps. "
+    "L09 cells belong to the ERBS that equals the site code when that ERBS exists. "
+    "L18, L21, and L26 cells belong to the ERBS that is the site code plus L when that ERBS exists. "
+    "An ERBS that is the only node keeps every cell. The site row counts each cell once. "
+    "ERBS Band is on 1. Site List. "
+    "CGPTA90 is L09 Cells. CGPTA90L is L18+L21+L26 cells. The site counts both."
 )
 
 
@@ -2093,6 +2217,7 @@ def write_site_list(
     title: str = "Site list — Dashboard issue sites",
     intro: str | None = None,
     tab_color: str = "#375623",
+    erbs_tp: dict[str, dict] | None = None,
 ) -> None:
     """Issue sites from the Dashboard. Tech, Site Type, and OSS 4H/1H are filled."""
     ws = book.add_worksheet(sheet_name)
@@ -2100,7 +2225,10 @@ def write_site_list(
     ws.set_footer("&L&8OSS 4H/1H from the cell KPI, rolled to the first 7 characters of the ERBS&R&8Page &P of &N")
     ws.set_tab_color(tab_color)
     use_pct = f"{LICENSE_USE * 100:.0f}"
+    show_band = erbs_tp is not None
     left = ["No.", name_header, "Tech", "Site Type", "Category", "Severity"]
+    if show_band:
+        left = ["No.", name_header, "Tech", "Site Type", "ERBS Band", "Category", "Severity"]
     bh_flag = [
         "DL Throughput<7Mbps",
         "Data Vol>50GB",
@@ -2121,6 +2249,8 @@ def write_site_list(
         f"Where ≥{use_pct}%",
     ]
     widths = [8, 16, 12, 14, 28, 16, 22, 16, 22, 16, 16, 24, 14, 14, 16, 18, 16, 12, 14, 18, 18]
+    if show_band:
+        widths = widths[:4] + [26] + widths[4:]
     for i, w in enumerate(widths):
         ws.set_column(i, i, w)
     bh_start = len(left)
@@ -2136,7 +2266,7 @@ def write_site_list(
             col += 1
     ws.set_row(0, 22)
     ws.merge_range(0, 0, 0, col - 1, title, styles["title"])
-    ws.set_row(1, 64 if intro else 48)
+    ws.set_row(1, 78 if intro else 64)
     ws.merge_range(
         1, 0, 1, col - 1,
         intro
@@ -2144,6 +2274,7 @@ def write_site_list(
             f"{period_txt}. Tech and Site Type are copied from {GEO_FILE}. "
             "OSS 4H/1H numbers are the physical site (first 7 characters of the ERBS): "
             "L900 cells dropped, then Data Volume and Max User pick the busy hours. "
+            "ERBS Band and the TP Range counts use that ERBS's own cells, and those counts keep L900. "
             "DL Throughput and DLPRBUtilization,% are recomputed from Num/Denom. "
             "BH Flag 1H is Yes when either 1 BusyHour block matches: "
             "DL Throughput<7Mbps at or below 7 Mbps, Data Vol>50GB at least 50 GB, "
@@ -2158,8 +2289,23 @@ def write_site_list(
     header_row = 3
     ws.set_row(header_row, 18)
     ws.set_row(header_row + 1, 36)
+    band_header = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "font_color": "white",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#00B0F0",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "white",
+        }
+    )
     for c, text in enumerate(left):
-        ws.merge_range(header_row, c, header_row + 1, c, text, styles["header"])
+        fmt = band_header if text == "ERBS Band" else styles["header"]
+        ws.merge_range(header_row, c, header_row + 1, c, text, fmt)
     for c, text in enumerate(right):
         ws.merge_range(header_row, right_start + c, header_row + 1, right_start + c, text, styles["header"])
     bh_group = book.add_format(
@@ -2280,10 +2426,16 @@ def write_site_list(
         )
         ws.write_string(row, 2, item.get("tech") or fcc.TECH_4G, cfmt)
         ws.write_string(row, 3, item.get("site_type") or "Not found", cfmt)
-        ws.write_string(row, 4, _listed_because(item), tfmt)
+        identity = 4
+        if show_band:
+            pack = (erbs_tp or {}).get(item["site"]) or {}
+            ws.write_string(row, 4, pack.get("band") or "—", cfmt)
+            identity = 5
+        ws.write_string(row, identity, _listed_because(item), tfmt)
         sev_style = SEVERITY_STYLE.get(severity)
-        ws.write_string(row, 5, severity, styles[sev_style] if sev_style else cfmt)
+        ws.write_string(row, identity + 1, severity, styles[sev_style] if sev_style else cfmt)
         busy = busy_by_code.get(item.get("site_code", ""), {})
+        erbs_pack = (erbs_tp or {}).get(item["site"]) if show_band else None
         tp_1h = (_finite(busy.get("tp_data_1h")), _finite(busy.get("tp_user_1h")))
         vol_1h = (_finite(busy.get("vol_data_1h")), _finite(busy.get("vol_user_1h")))
         flags = (
@@ -2335,7 +2487,10 @@ def write_site_list(
                 else:
                     ws.write_blank(row, oss_col, None, nfmt)
                 oss_col += 1
-            bins = busy.get(f"tp_bins_{prefix}") if has_busy else None
+            if erbs_pack is not None:
+                bins = erbs_pack.get(prefix)
+            else:
+                bins = busy.get(f"tp_bins_{prefix}") if has_busy else None
             for offset in range(len(TP_RANGE_LABELS)):
                 if bins is None:
                     ws.write_blank(row, oss_col, None, ifmt)
@@ -2479,10 +2634,12 @@ def write_issue_snapshots(
     chart_end,
     busy_by_code: dict[str, dict] | None = None,
     work_by_level: dict[str, pd.DataFrame] | None = None,
+    erbs_tp: dict[str, dict] | None = None,
 ) -> None:
     """One chart per issue site. Every chart has the same five lines.
 
     A tag on the row just above the plot says ERBS or Site.
+    The TP Range table uses that ERBS's cells, or every cell of the site.
     """
     ws = book.add_worksheet(fcc.SNAP_SHEET)
     _page(ws, "Hourly chart of issue sites", fit_width=False)
@@ -2693,7 +2850,13 @@ def write_issue_snapshots(
         ws.insert_chart(top + 4, 0, chart, {"x_offset": 6, "y_offset": 6, "object_position": 2})
         busy = busy_by_code.get(item.get("site_code", ""), {})
         fcc._chart_side_table(ws, top, busy, side_formats)
-        _chart_tp_range_table(ws, top, busy, side_formats)
+        tp_busy = busy
+        if level == LEVEL_ERBS:
+            pack = (erbs_tp or {}).get(site) or {}
+            tp_busy = dict(busy)
+            for *_rest, prefix in OSS_BLOCKS:
+                tp_busy[f"tp_bins_{prefix}"] = pack.get(prefix, [0] * len(TP_RANGE_LABELS))
+        _chart_tp_range_table(ws, top, tp_busy, side_formats)
         for rr in range(top + 4, top + block):
             ws.set_row(rr, 16)
     if charts:
@@ -2880,7 +3043,9 @@ def write_workbook(
     attach_site_identity(charts, tech_by_code, type_by_code)
     if site_charts:
         attach_site_identity(site_charts, tech_by_code, type_by_code)
-    busy_rows, missing_feg, oss_note = prepare_oss(work, charts, tech_by_code, type_by_code)
+    busy_rows, missing_feg, oss_note, erbs_tp = prepare_oss(
+        work, charts, tech_by_code, type_by_code
+    )
     busy_by_code = {row["site"]: row for row in busy_rows}
     site_level = None
     if site_work is not None and site_records is not None:
@@ -2898,7 +3063,7 @@ def write_workbook(
         oss_note=oss_note,
         site_level=site_level,
     )
-    write_site_list(book, styles, period_txt, charts, busy_by_code)
+    write_site_list(book, styles, period_txt, charts, busy_by_code, erbs_tp=erbs_tp)
     if site_charts:
         write_site_list(
             book, styles, period_txt, site_charts, busy_by_code,
@@ -2926,7 +3091,8 @@ def write_workbook(
         work_by_level[LEVEL_SITE] = site_work
     if license_summary is not None:
         write_issue_snapshots(
-            book, styles, work, all_charts, chart_start, chart_end, busy_by_code, work_by_level
+            book, styles, work, all_charts, chart_start, chart_end,
+            busy_by_code, work_by_level, erbs_tp,
         )
         print("Writing hourly KPI...", flush=True)
         write_issue_hourly(book, styles, work, all_charts, work_by_level)
