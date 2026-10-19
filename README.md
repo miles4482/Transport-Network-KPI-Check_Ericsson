@@ -74,6 +74,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html` | The same chart page, renamed to the v30 Excel version. The charts were not rebuilt |
 | `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html` | The same chart page, renamed to the v31 Excel version. The charts were not rebuilt |
 | `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
+| `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.zip` | The v31-named chart page, zipped. Unzip it and open the `.html` file |
 
 Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`
 
