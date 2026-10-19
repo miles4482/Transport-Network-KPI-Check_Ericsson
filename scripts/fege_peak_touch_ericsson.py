@@ -48,10 +48,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-REPORT_VERSION = "v32"
+REPORT_VERSION = "v33"
 OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
 METHOD_SHEET = "Method"
+ACTION_SHEET = "ActionPlan"
 SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -3232,6 +3233,289 @@ def _site_immediate_rows(
     return selected
 
 
+# Four OSS busy-hour blocks. A rule matches when any one block meets it.
+ACTION_BLOCKS = (
+    ("Data 4H", "tp_data_4h", "vol_data_4h", "users_data_4h", "prb_data_4h"),
+    ("User 4H", "tp_user_4h", "vol_user_4h", "users_user_4h", "prb_user_4h"),
+    ("Data 1H", "tp_data_1h", "vol_data_1h", "users_data_1h", "prb_data_1h"),
+    ("User 1H", "tp_user_1h", "vol_user_1h", "users_user_1h", "prb_user_1h"),
+)
+ACTION_TAGS = (
+    ("vol100", "1. Chocked & Volume >100 GB & Throughput <5 Mbps"),
+    ("vol50", "2. Chocked & Volume >50 GB & Throughput <7 Mbps"),
+    ("tp7", "3. Chocked & Throughput <7 Mbps"),
+    ("tp10", "4. Chocked & Throughput <10 Mbps"),
+    ("userprb", "5. Chocked & Max User >300 & PRB >75%"),
+)
+ACTION_KPI = (
+    ("tp_data_4h", "DL Throughput Data 4h (Mbps)"),
+    ("tp_user_4h", "DL Throughput User 4h (Mbps)"),
+    ("tp_data_1h", "DL Throughput Data 1h (Mbps)"),
+    ("tp_user_1h", "DL Throughput User 1h (Mbps)"),
+    ("vol_data_4h", "Data Volume Data 4h (GB)"),
+    ("vol_user_4h", "Data Volume User 4h (GB)"),
+    ("vol_data_1h", "Data Volume Data 1h (GB)"),
+    ("vol_user_1h", "Data Volume User 1h (GB)"),
+    ("users_data_4h", "Max User Data 4h"),
+    ("users_user_4h", "Max User User 4h"),
+    ("users_data_1h", "Max User Data 1h"),
+    ("users_user_1h", "Max User User 1h"),
+    ("prb_data_4h", "PRB Data 4h (%)"),
+    ("prb_user_4h", "PRB User 4h (%)"),
+    ("prb_data_1h", "PRB Data 1h (%)"),
+    ("prb_user_1h", "PRB User 1h (%)"),
+)
+
+
+def _action_why(busy: dict, key: str) -> str:
+    """Blocks where this ActionPlan rule is true. Empty when none match."""
+    hits = []
+    for label, tp_key, vol_key, user_key, prb_key in ACTION_BLOCKS:
+        tp = _finite(busy.get(tp_key))
+        vol = _finite(busy.get(vol_key))
+        users = _finite(busy.get(user_key))
+        prb = _finite(busy.get(prb_key))
+        if key == "vol100" and np.isfinite(vol) and vol > 100 and np.isfinite(tp) and tp < 5:
+            hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
+        elif key == "vol50" and np.isfinite(vol) and vol > 50 and np.isfinite(tp) and tp < 7:
+            hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
+        elif key == "tp7" and np.isfinite(tp) and tp < 7:
+            hits.append(f"{label} {tp:.2f} Mbps")
+        elif key == "tp10" and np.isfinite(tp) and tp < 10:
+            hits.append(f"{label} {tp:.2f} Mbps")
+        elif (
+            key == "userprb"
+            and np.isfinite(users) and users > 300
+            and np.isfinite(prb) and prb > 75
+        ):
+            hits.append(f"{label} Max User {users:.0f}, PRB {prb:.1f}%")
+    return "; ".join(hits)
+
+
+def _action_rows(
+    site_charts: list[dict],
+    erbs_charts: list[dict],
+    busy_by_code: dict[str, dict],
+) -> list[dict]:
+    """Tx Flat/Chocked names from both issue lists. The first matching rule wins."""
+    selected = []
+    level_rank = {LEVEL_SITE: 0, LEVEL_ERBS: 1}
+    for level, items in ((LEVEL_SITE, site_charts), (LEVEL_ERBS, erbs_charts)):
+        for item in items:
+            if item.get("category") != CAT_TX:
+                continue
+            busy = busy_by_code.get(item.get("site_code", ""))
+            if not busy:
+                continue
+            severity = item.get("display_severity") or "—"
+            chosen = None
+            why = ""
+            for key, _name in ACTION_TAGS:
+                why = _action_why(busy, key)
+                if why:
+                    chosen = key
+                    break
+            if chosen is None:
+                continue
+            touch = item.get("touch") or {}
+            selected.append(
+                {
+                    "site": item["site"],
+                    "level": level,
+                    "severity": severity,
+                    "tech": item.get("tech") or fcc.TECH_4G,
+                    "site_type": item.get("site_type") or "Not found",
+                    "tag_key": chosen,
+                    "tag": next(name for key, name in ACTION_TAGS if key == chosen),
+                    "why": why,
+                    "hours_pct": float(touch.get("hours_pct") or 0.0),
+                    "busy": busy,
+                    "level_rank": level_rank[level],
+                }
+            )
+    rank = {key: i for i, (key, _name) in enumerate(ACTION_TAGS)}
+    selected.sort(
+        key=lambda rec: (
+            rank[rec["tag_key"]],
+            rec["level_rank"],
+            SEVERITY_ORDER.get(rec["severity"], 9),
+            -rec["hours_pct"],
+            rec["site"],
+        )
+    )
+    return selected
+
+
+def write_action_plan(
+    book,
+    styles,
+    period_txt: str,
+    site_charts: list[dict],
+    erbs_charts: list[dict],
+    busy_by_code: dict[str, dict],
+    site_chart_index: dict[str, int],
+    erbs_chart_index: dict[str, int],
+) -> None:
+    """ActionPlan, immediately before Immediate actions."""
+    rows = _action_rows(site_charts, erbs_charts, busy_by_code)
+    ws = book.add_worksheet(ACTION_SHEET)
+    _page(ws, "Action plan — Tx Flat/Chocked, Site and ERBS")
+    ws.set_tab_color("#C65911")
+    counts = {key: sum(1 for rec in rows if rec["tag_key"] == key) for key, _name in ACTION_TAGS}
+    head = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "font_color": "white",
+            "align": "center",
+            "valign": "vcenter",
+            "bg_color": "#C65911",
+            "border": 1,
+            "border_color": "#8FA8C4",
+        }
+    )
+    tag_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "valign": "vcenter",
+            "text_wrap": True,
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "bg_color": "#FCE4D6",
+        }
+    )
+    count_fmt = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 11,
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "bg_color": "#FCE4D6",
+            "num_format": "#,##0",
+        }
+    )
+    total_tag = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+        }
+    )
+    total_num = book.add_format(
+        {
+            "font_name": "Calibri",
+            "bold": True,
+            "font_size": 11,
+            "align": "center",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#BFBFBF",
+            "num_format": "#,##0",
+        }
+    )
+    last_col = 7 + len(ACTION_KPI)
+    ws.set_row(0, 28)
+    ws.merge_range(0, 0, 0, last_col, "Action plan — Tx Flat/Chocked", styles["title"])
+    ws.set_row(1, 96)
+    ws.merge_range(
+        1, 0, 1, last_col,
+        f"{period_txt}. Issue sites from {SITE_LIST_SITE_SHEET} and {SITE_LIST_SHEET}. "
+        "Only Tx Flat/Chocked. Peak Touch and License usage are not listed. "
+        "The 10 non-issue comparison sites are not listed. "
+        "A block is Data 4H, User 4H, Data 1H, or User 1H. "
+        "The rule matches when any one of those blocks meets every number in the rule. "
+        "Volume and throughput, or Max User and PRB, are read on that same block. "
+        "A name is listed once, under the first rule it matches, and is not counted again. "
+        "Volume > 100 GB and volume > 50 GB are strict. Throughput < 5, < 7, and < 10 Mbps are strict. "
+        "Max User > 300 and PRB > 75% are strict. "
+        "OSS values are the physical-site busy hours, L900 dropped.",
+        styles["note"],
+    )
+    ws.set_row(3, 22)
+    ws.merge_range(3, 0, 3, 5, "TAG", head)
+    ws.write(3, 6, "Count", head)
+    for offset, (key, name) in enumerate(ACTION_TAGS):
+        ws.set_row(4 + offset, 22)
+        ws.merge_range(4 + offset, 0, 4 + offset, 5, name, tag_fmt)
+        ws.write_number(4 + offset, 6, counts[key], count_fmt)
+    total_row = 4 + len(ACTION_TAGS)
+    ws.set_row(total_row, 20)
+    ws.merge_range(total_row, 0, total_row, 5, "Total", total_tag)
+    ws.write_number(total_row, 6, len(rows), total_num)
+
+    headers = [
+        "No.",
+        "Level",
+        "Name",
+        "Tech",
+        "Severity",
+        "Site Type",
+        "TAG",
+        "Matched block",
+    ] + [title for _key, title in ACTION_KPI]
+    header_row = total_row + 2
+    ws.set_row(header_row, 36)
+    for col, text in enumerate(headers):
+        ws.write(header_row, col, text, styles["header"])
+    widths = [6, 10, 16, 12, 12, 14, 62, 54] + [16] * len(ACTION_KPI)
+    for col, width in enumerate(widths):
+        ws.set_column(col, col, width)
+    ws.freeze_panes(header_row + 1, 3)
+    for i, rec in enumerate(rows):
+        row = header_row + 1 + i
+        zebra = i % 2 == 1
+        nfmt = styles["num_z"] if zebra else styles["num"]
+        text = styles["text_z"] if zebra else styles["text"]
+        center = styles["center_z"] if zebra else styles["center"]
+        link = styles["link_z"] if zebra else styles["link"]
+        ws.set_row(row, 18)
+        ws.write_number(row, 0, i + 1, styles["int_z"] if zebra else styles["int"])
+        ws.write_string(row, 1, rec["level"], center)
+        chart_i = (
+            site_chart_index.get(rec["site"])
+            if rec["level"] == LEVEL_SITE
+            else erbs_chart_index.get(rec["site"])
+        )
+        if chart_i is not None:
+            ws.write_url(
+                row, 2,
+                f"internal:'{fcc.SNAP_SHEET}'!A{chart_i * fcc.BLOCK_ROWS + 1}",
+                link,
+                string=rec["site"],
+            )
+        else:
+            ws.write_string(row, 2, rec["site"], text)
+        ws.write_string(row, 3, rec["tech"], center)
+        sev_style = SEVERITY_STYLE.get(rec["severity"])
+        ws.write_string(row, 4, rec["severity"], styles[sev_style] if sev_style else center)
+        ws.write_string(row, 5, rec["site_type"], center)
+        ws.write_string(row, 6, rec["tag"], text)
+        ws.write_string(row, 7, rec["why"], text)
+        busy = rec["busy"]
+        for offset, (key, _title) in enumerate(ACTION_KPI):
+            value = _finite(busy.get(key))
+            if np.isfinite(value):
+                ws.write_number(row, 8 + offset, value, nfmt)
+            else:
+                ws.write_blank(row, 8 + offset, None, nfmt)
+    last = header_row + max(len(rows), 1)
+    ws.autofilter(header_row, 0, last, len(headers) - 1)
+    ws.set_zoom(100)
+    print(
+        "ActionPlan (Tx Flat/Chocked, Site and ERBS): "
+        + ", ".join(f"{name} {counts[key]}" for key, name in ACTION_TAGS)
+        + f"; total {len(rows)}",
+        flush=True,
+    )
+
+
 def write_site_immediate_actions(
     book,
     styles,
@@ -3748,7 +4032,8 @@ def write_method(
                     "Dashboard has the Site Level section first, then the ERBS section. "
                     "1. Site List_SiteLevel is the next sheet. 1. Site List_ERBS follows it. "
                     "2. HourlyChartOfIssueSites. 3. Hourly KPI holds issue hours only, with Level ERBS or Site. "
-                    "This sheet is Method. 5. GeoPlot. URGENTBWINC_BusyHour. 7. Immediate actions. "
+                    "This sheet is Method. 5. GeoPlot. URGENTBWINC_BusyHour. "
+                    "ActionPlan is the sheet immediately before 7. Immediate actions. "
                     "Sheet 6. Missing FEG Port is not written. "
                     "Comparison stays off until a previous-window FEG file is provided. "
                     "The dashboard note counts OSS sites with no ERBS in the FEG file and does not name sheet 6.",
@@ -3790,6 +4075,34 @@ def write_method(
                     f"{len(geo_records)} issue sites = {both} on both dashboards + "
                     f"{erbs_only} ERBS-only + {site_only} SiteLevel-only. "
                     f"{license_only_sites} of those sites are listed only by the license rule.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — ActionPlan",
+            [
+                (
+                    "Who is included",
+                    "Sheet ActionPlan sits immediately before 7. Immediate actions. "
+                    "The rows are Tx Flat/Chocked issue names from 1. Site List_SiteLevel and "
+                    "1. Site List_ERBS. Peak Touch, License usage, and the 10 non-issue sites are not listed. "
+                    "A name is listed once, under the first rule it matches.",
+                ),
+                (
+                    "Blocks",
+                    "Data 4H, User 4H, Data 1H, or User 1H. "
+                    "Any one block can match. Volume and throughput are read on that same block. "
+                    "Max User and PRB are read on that same block. "
+                    "OSS values are the physical-site busy hours, with L900 dropped.",
+                ),
+                (
+                    "Order",
+                    "1. Volume > 100 GB and DL throughput < 5 Mbps. "
+                    "2. Volume > 50 GB and DL throughput < 7 Mbps. "
+                    "3. DL throughput < 7 Mbps. "
+                    "4. DL throughput < 10 Mbps. "
+                    "5. Max User > 300 and PRB > 75%. "
+                    "Each test is strict. A name that matches rule 1 is not repeated on a later rule.",
                 ),
             ],
         ),
@@ -4124,6 +4437,10 @@ def write_workbook(
     link_records = [{"site": item["site_code"]} for item in charts]
     print(f"Writing BusyHour ({len(busy_rows):,} sites)...", flush=True)
     fcc._write_busy_hour_plan(book, styles, period_txt, link_records, busy_rows)
+    write_action_plan(
+        book, styles, period_txt, site_charts, charts, busy_by_code,
+        site_chart_index, chart_index,
+    )
     write_site_immediate_actions(
         book, styles, period_txt, site_charts, busy_by_code, site_chart_index,
     )

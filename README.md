@@ -2,7 +2,7 @@
 
 FEGE site-choking (Transmission Link Health Review) report for the Ericsson zone.
 
-All rules are saved in `RULES.md`. The operative set is the section **Current Ericsson report — v32**, for the Excel workbook and the chart page. The same rules are written on the workbook sheet `Method`. Later sections are the history copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`). Where they disagree, v30 wins.
+All rules are saved in `RULES.md`. The operative set is the section **Current Ericsson report — v33**, for the Excel workbook and the chart page. The same rules are written on the workbook sheet `Method`. Later sections are the history copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`). Where they disagree, v30 wins.
 
 ## Files required to prepare a similar report
 
@@ -68,6 +68,7 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx` | v29 plus 10 non-issue sites at the bottom of `1. Site List_ERBS` and `1. Site List_SiteLevel`, with comparison charts tagged Non Issue. Dashboard, GeoPlot, and Immediate actions are unchanged |
 | `FEGE_Choked_Flat_Sites_Ericsson_v31.xlsx` | v30 plus sheet `Method`. That sheet holds the Excel rules and the chart-page rules |
 | `FEGE_Choked_Flat_Sites_Ericsson_v32.xlsx` | Site Level Dashboard is first, then ERBS Dashboard. No. starts on the site charts. `1. Site List_SiteLevel` is the sheet after Dashboard. The 10 non-issue sites each have one ERBS, and Peak is above 15 Mbps |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33.xlsx` | v32 plus sheet `ActionPlan`, immediately before `7. Immediate actions`. Tx Flat/Chocked names from both issue lists, first matching rule only |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
 | `FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html` | Earlier chart page for Excel v22. One ERBS list only |
 | `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html` | Chart page built for Excel v28. Two tabs: **ERBS** and **SiteLevel** |
@@ -75,9 +76,11 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 | `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html` | The same chart page, renamed to the v30 Excel version. The charts were not rebuilt |
 | `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html` | The same chart page, renamed to the v31 Excel version. The charts were not rebuilt |
 | `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.html` | The same chart page, renamed to the v32 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33_Charts.html` | The same chart page, renamed to the v33 Excel version. The charts were not rebuilt |
 | `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
 | `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.zip` | The v31-named chart page, zipped. Unzip it and open the `.html` file |
 | `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.zip` | The v32-named chart page, zipped. Unzip it and open the `.html` file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33_Charts.zip` | The v33-named chart page, zipped. Unzip it and open the `.html` file |
 
 Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`
 

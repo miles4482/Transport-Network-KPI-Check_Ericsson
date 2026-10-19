@@ -1,12 +1,20 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v32.** The section [Current Ericsson report — v32](#current-ericsson-report--v32) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v32 was built from. Where they disagree, v32 wins.
+**Current report is v33.** The section [Current Ericsson report — v33](#current-ericsson-report--v33) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v33 was built from. Where they disagree, v33 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v32.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v33.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v33_Charts.html`.
 
-## Current Ericsson report — v32
+## Current Ericsson report — v33
 
-v32 keeps the v31 rules, with three layout changes. Site Level Dashboard is on top of the Dashboard sheet, and ERBS Dashboard is below it. No. starts at 1 on the Site Level charts and continues on the ERBS charts. `1. Site List_SiteLevel` is the sheet after Dashboard. `1. Site List_ERBS` follows it. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps for that ERBS and for the site. A site with two ERBS ids is not used. Sheet `Method` still holds these rules. The chart file name is v32. The page inside it is the two-tab page built for v28, copied and not rebuilt. The title inside the page still says Excel v28. Do not rebuild the HTML unless asked.
+v33 keeps the v32 layout and adds sheet **ActionPlan** immediately before `7. Immediate actions`. The rows are Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is listed once, under the first rule it matches. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block.
+
+1. Volume > 100 GB and DL throughput < 5 Mbps
+2. Volume > 50 GB and DL throughput < 7 Mbps
+3. DL throughput < 7 Mbps
+4. DL throughput < 10 Mbps
+5. Max User > 300 and PRB > 75%
+
+Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is the two-tab page built for v28, copied and not rebuilt. Do not rebuild the HTML unless asked.
 
 ### Sheet Method
 
@@ -71,7 +79,7 @@ Four columns after Severity, on both lists. Yes when either 1H block matches. DL
 
 ### Sheets
 
-Dashboard (Site Level, then ERBS). `1. Site List_SiteLevel`. `1. Site List_ERBS`. `2. HourlyChartOfIssueSites`. `3. Hourly KPI` (issue hours only; Level is `ERBS` or `Site`). `5. GeoPlot`. `URGENTBWINC_BusyHour`. `7. Immediate actions`. Sheet `6. Missing FEG Port` is not written. Comparison stays skipped until a previous-window FEG file is provided. The dashboard note counts OSS sites with no ERBS in the FEG file (3 in this window) and does not name sheet 6.
+Dashboard (Site Level, then ERBS). `1. Site List_SiteLevel`. `1. Site List_ERBS`. `2. HourlyChartOfIssueSites`. `3. Hourly KPI` (issue hours only; Level is `ERBS` or `Site`). `5. GeoPlot`. `URGENTBWINC_BusyHour`. `ActionPlan`. `7. Immediate actions`. Sheet `6. Missing FEG Port` is not written. Comparison stays skipped until a previous-window FEG file is provided. The dashboard note counts OSS sites with no ERBS in the FEG file (3 in this window) and does not name sheet 6.
 
 ### GeoPlot
 
