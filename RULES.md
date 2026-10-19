@@ -93,7 +93,7 @@ Total 362. Medium and Decision are never listed. Throughput above 10 Mbps with v
 
 Up to 10 physical sites that are on neither dashboard, so an issue chart and a non-issue chart can be compared. Each site has exactly one ERBS. A site with two ERBS ids is not used. Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. Every name has at least 24 samples, Peak at least 20, a positive license, touch ratio under 5%, and license-hour share under 5%. Only if fewer than 10 are found, relax touch and license share to under 10%. The one-ERBS rule and the 15 Mbps floor stay.
 
-Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are numbered first, then issue ERBS charts, then the non-issue site charts, then the non-issue ERBS charts. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
+This window: `BBAKD04`, `BBAKD10`, `BBAKD11`, `BBLMA17`, `BBLMA19`, `BBLMA22`, `BBLMA28`, `BBNKC09`, `BBNKC19`, `BBNKC20`. Each has one ERBS (`BBAKD04_01`, `BBAKD10B01`, `BBAKD11B01`, `BBLMA17`, `BBLMA19B01`, `BBLMA22B01`, `BBLMA28B01`, `BBNKC09B01`, `BBNKC19`, `BBNKC20B01`). Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are 1–609, issue ERBS charts are 610–1361, non-issue site charts are 1362–1371, and non-issue ERBS charts are 1372–1381. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
 
 ### Chart page
 
