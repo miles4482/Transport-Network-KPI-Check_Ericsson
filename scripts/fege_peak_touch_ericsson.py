@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-REPORT_VERSION = "v31"
+REPORT_VERSION = "v32"
 OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
 METHOD_SHEET = "Method"
@@ -91,6 +91,8 @@ CAT_LICENSE = "License usage"
 CAT_TX = "Tx Flat/Chocked"
 CAT_NON = "Non Issue"
 NON_ISSUE_SITES = 10
+# Non-issue comparison: one ERBS per site, and Max DL Peak above this on both levels.
+NON_ISSUE_MIN_MBPS = 15.0
 # Gap = (License - Peak) / License. A listed site at or above 10% is Tx Flat/Chocked.
 GAP_MIN = 0.10
 TX_COMMENT = "Tx Issues Suspected"
@@ -577,33 +579,61 @@ def write_dashboard(
         f"{eric.ZONE} transmission    ·    {period_txt}    ·    hourly    ·    {source_name}",
         styles["subtitle"],
     )
-    ws.set_row(2, 150 if oss_note else 100)
+    ws.set_row(2, 32)
+    ws.merge_range(
+        2, 0, 2, 11,
+        "Site Level Dashboard is first. ERBS Dashboard follows. "
+        "No. starts at 1 on the Site Level charts and continues on the ERBS charts.",
+        styles["note"],
+    )
+    row = 4
+    if site_level is not None:
+        row = _write_site_level_dashboard(book, ws, styles, row, site_level)
+        row += 2
+    erbs_banner = book.add_format(
+        {
+            "font_name": "Calibri",
+            "font_size": 16,
+            "bold": True,
+            "font_color": "white",
+            "bg_color": "#1F4E79",
+            "align": "left",
+            "valign": "vcenter",
+            "border": 1,
+            "border_color": "#1F4E79",
+        }
+    )
+    ws.set_row(row, 28)
+    ws.merge_range(row, 0, row, 11, "ERBS Dashboard", erbs_banner)
+    row += 1
+    ws.set_row(row, 150 if oss_note else 100)
     method = (
         f"Method: only {TRACE_COL} is read. Peak = the highest hourly value in the window "
         f"(red line). {TOUCH_LEVEL_NAME} = Peak × {100 - TOUCH_BAND * 100:.0f}% (orange line). "
-        f"It is {TOUCH_BAND * 100:.0f}% under that site's own Peak. It is not an average of the hours. "
+        f"It is {TOUCH_BAND * 100:.0f}% under that ERBS's own Peak. It is not an average of the hours. "
         f"An hour touches when its value is at or above {TOUCH_LEVEL_NAME}. "
         "Three categories, with Tx Flat/Chocked first. "
-        "Tx Flat/Chocked: a listed site whose Gap = (License − Peak) / License is at least 10%. "
+        "Tx Flat/Chocked: a listed ERBS whose Gap = (License − Peak) / License is at least 10%. "
         "Severe ≥ 40%, High 30% to under 40%, Medium 20% to under 30%, Low 15% to under 20%, "
         "Decision 10% to under 15%. Comment is Tx Issues Suspected. "
         "Peak Touch: peak ratio Severe ≥ 40%, High 30% to under 40%, "
         "Medium 20% to under 30%, Low 10% to under 20%. Under 10% is not listed. "
         "License usage: share of hours at ≥85% of license, Severe ≥ 50%, High 40% to under 50%, "
         "Medium 30% to under 40%, Low 20% to under 30%. "
-        f"A site is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
+        f"An ERBS is scored when it has at least {MIN_SAMPLES} hourly samples and a Peak of at "
         f"least {MIN_PEAK_MBPS:.0f} Mbit/s."
     )
     if oss_note:
         method = f"{method} {oss_note}"
-    ws.merge_range("A3:L3", method, styles["note"])
+    ws.merge_range(row, 0, row, 11, method, styles["note"])
+    row += 1
 
     license_records = (license_summary or {}).get("records") or []
     n_peak = sum(1 for rec in records if rec["category"] == CAT_PEAK)
     n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
     row = eric._write_tiles(
         ws,
-        3,
+        row,
         [
             (0, "Sites checked", n_sites, False),
             (2, CAT_PEAK, n_peak, False),
@@ -706,8 +736,6 @@ def write_dashboard(
         row += 1
     if license_summary is not None:
         row = _write_license_on_dashboard(book, ws, styles, row + 1, license_summary, chart_index or {})
-    if site_level is not None:
-        _write_site_level_dashboard(book, ws, styles, row + 2, site_level)
     ws.set_footer("&L&8Peak touch, or Max DL Capacity Usage / dlBbCapacityNet&R&8Page &P of &N")
     ws.set_zoom(110)
 
@@ -807,7 +835,7 @@ def _write_touch_detail(
 
 
 def _write_site_level_dashboard(book, ws, styles, row: int, pack: dict) -> int:
-    """Second dashboard, under the ERBS dashboard. Same three categories on the site sum."""
+    """Site Level Dashboard, written above the ERBS Dashboard."""
     records = pack["records"]
     license_summary = pack.get("license_summary")
     chart_index = pack.get("chart_index") or {}
@@ -835,7 +863,7 @@ def _write_site_level_dashboard(book, ws, styles, row: int, pack: dict) -> int:
         f"Each hour is the SUM of {TRACE_COL} across those ERBS, for that date and that hour. "
         "License is the SUM of dlBbCapacityNet across every NodeId with the same Site Name "
         "(LEFT(NodeId, 7)). UL (ulBbCapacityNet) is not used. "
-        "The three categories use the same rules as the ERBS dashboard above. "
+        "The three categories use the same rules as the ERBS Dashboard below. "
         f"Peak = the highest hourly site sum. {TOUCH_LEVEL_NAME} = Peak × "
         f"{100 - TOUCH_BAND * 100:.0f}%. An hour touches when the site sum is at or above {TOUCH_LEVEL_NAME}. "
         "Tx Flat/Chocked: Gap = (License − Peak) / License is at least 10%. "
@@ -3403,10 +3431,11 @@ def select_non_issue_sites(
     site_license_summary: dict | None,
     known_codes: set[str],
 ) -> list[str]:
-    """Ten physical sites that are absent from both dashboards.
+    """Up to 10 non-issue sites. Each site has exactly one ERBS.
 
-    Every ERBS of the site is also absent. Touch ratio and license-hour share
-    stay under the listing floors, so the comparison chart is not an issue chart.
+    A site with two ERBS ids is skipped, so the comparison rows are different
+    sites. Peak of Max DL is above 15 Mbps for that ERBS and for the site.
+    Touch ratio and license-hour share stay under the listing floors.
     """
     issue_erbs = {item["site"] for item in charts}
     issue_sites = {item["site"] for item in site_charts}
@@ -3414,42 +3443,46 @@ def select_non_issue_sites(
     site_touch = _touch_table(site_work).set_index("site")
     erbs_stats = (license_summary or {}).get("stats_by_site") or {}
     site_stats = (site_license_summary or {}).get("stats_by_site") or {}
-    by_code: dict[str, list[str]] = defaultdict(list)
-    for name in erbs_touch.index:
-        by_code[str(name)[:7]].append(str(name))
+    all_nodes: dict[str, list[str]] = defaultdict(list)
+    for name in work["eNodeB Name"].astype(str).str.strip().unique():
+        all_nodes[site_code(str(name))].append(str(name))
 
-    def take(max_nodes: int, touch_cap: float, share_cap: float) -> list[str]:
+    def take(touch_cap: float, share_cap: float) -> list[str]:
         picked = []
-        for code in sorted(by_code):
+        for code in sorted(all_nodes):
             if code in issue_sites or code not in site_touch.index or code not in known_codes:
                 continue
-            nodes = by_code[code]
-            if not nodes or len(nodes) > max_nodes or any(node in issue_erbs for node in nodes):
+            nodes = all_nodes[code]
+            if len(nodes) != 1 or nodes[0] in issue_erbs:
+                continue
+            node = nodes[0]
+            if node not in erbs_touch.index:
                 continue
             if float(site_touch.loc[code, "touch_pct"]) >= touch_cap:
                 continue
-            site_stat = site_stats.get(code)
-            if not site_stat or float(site_stat["share"]) >= share_cap or float(site_stat["license"]) <= 0:
+            if float(erbs_touch.loc[node, "touch_pct"]) >= touch_cap:
                 continue
-            clean = True
-            for node in nodes:
-                stat = erbs_stats.get(node)
-                if node not in erbs_touch.index or not stat or float(stat["share"]) >= share_cap:
-                    clean = False
-                    break
-                if float(erbs_touch.loc[node, "touch_pct"]) >= touch_cap or float(stat["license"]) <= 0:
-                    clean = False
-                    break
-            if not clean:
+            site_stat = site_stats.get(code)
+            stat = erbs_stats.get(node)
+            if not site_stat or not stat:
+                continue
+            if float(site_stat["license"]) <= 0 or float(stat["license"]) <= 0:
+                continue
+            if float(site_stat["share"]) >= share_cap or float(stat["share"]) >= share_cap:
+                continue
+            if (
+                float(site_stat["peak"]) <= NON_ISSUE_MIN_MBPS
+                or float(stat["peak"]) <= NON_ISSUE_MIN_MBPS
+            ):
                 continue
             picked.append(code)
             if len(picked) == NON_ISSUE_SITES:
                 break
         return picked
 
-    chosen = take(3, 5.0, 5.0)
+    chosen = take(5.0, 5.0)
     if len(chosen) < NON_ISSUE_SITES:
-        chosen = take(6, 10.0, 10.0)
+        chosen = take(10.0, 10.0)
     if len(chosen) < NON_ISSUE_SITES:
         raise SystemExit(f"Found only {len(chosen)} non-issue sites; need {NON_ISSUE_SITES}")
     print("Non-issue comparison sites: " + ", ".join(chosen), flush=True)
@@ -3519,11 +3552,11 @@ def write_method(
     n_sites = len(site_charts)
     n_non_erbs = len(non_erbs)
     n_non_sites = len(non_sites)
-    issue_last = n_erbs + n_sites
-    non_erbs_first = issue_last + 1
-    non_erbs_last = issue_last + n_non_erbs
-    non_site_first = non_erbs_last + 1
-    non_site_last = non_erbs_last + n_non_sites
+    issue_last = n_sites + n_erbs
+    non_site_first = issue_last + 1
+    non_site_last = issue_last + n_non_sites
+    non_erbs_first = non_site_last + 1
+    non_erbs_last = non_site_last + n_non_erbs
     non_site_names = ", ".join(item["site"] for item in non_sites) or "none"
     vol_n = tag_counts["vol"]
     lt5_n = tag_counts["lt5"]
@@ -3621,15 +3654,22 @@ def write_method(
             "Excel report — two dashboards",
             [
                 (
-                    "ERBS dashboard",
-                    "Stays on the full ERBS / NodeId. License is that NodeId's dlBbCapacityNet.",
+                    "Order",
+                    "Site Level Dashboard is on top. ERBS Dashboard is below it. "
+                    "No. starts at 1 on the Site Level charts and continues on the ERBS charts. "
+                    "1. Site List_SiteLevel is the sheet after Dashboard. "
+                    "1. Site List_ERBS follows that sheet.",
                 ),
                 (
                     "Site Level dashboard",
-                    "Written under the ERBS dashboard. Site-hour Max DL is the SUM of "
-                    "Max DL Capacity Usage for every ERBS of that Site Name, on that date and hour. "
-                    "On 11/Oct hour 0, site CGPTA90 is CGPTA90 plus CGPTA90L. "
+                    "Site-hour Max DL is the SUM of Max DL Capacity Usage for every ERBS of that "
+                    "Site Name, on that date and hour. On 11/Oct hour 0, site CGPTA90 is CGPTA90 plus CGPTA90L. "
                     "Site license is the summed license. The three categories use the same floors.",
+                ),
+                (
+                    "ERBS dashboard",
+                    "Below the Site Level Dashboard. It stays on the full ERBS / NodeId. "
+                    "License is that NodeId's dlBbCapacityNet.",
                 ),
             ],
         ),
@@ -3705,8 +3745,8 @@ def write_method(
             [
                 (
                     "Workbook",
-                    "Dashboard has the ERBS section, then the Site Level section. "
-                    "1. Site List_ERBS and 1. Site List_SiteLevel. "
+                    "Dashboard has the Site Level section first, then the ERBS section. "
+                    "1. Site List_SiteLevel is the next sheet. 1. Site List_ERBS follows it. "
                     "2. HourlyChartOfIssueSites. 3. Hourly KPI holds issue hours only, with Level ERBS or Site. "
                     "This sheet is Method. 5. GeoPlot. URGENTBWINC_BusyHour. 7. Immediate actions. "
                     "Sheet 6. Missing FEG Port is not written. "
@@ -3725,9 +3765,9 @@ def write_method(
                     "Excel charts",
                     "Five lines: Max DL Capacity Usage, Peak, Below5%Peak, the license, and 85% of the license. "
                     "The row above the plot is the tag. Issue tags are ERBS (navy) or Site (orange). "
-                    f"This file: issue ERBS charts 1–{n_erbs}, issue site charts {n_erbs + 1}–{issue_last}, "
-                    f"non-issue ERBS charts {non_erbs_first}–{non_erbs_last}, "
-                    f"non-issue site charts {non_site_first}–{non_site_last}.",
+                    f"This file: issue site charts 1–{n_sites}, issue ERBS charts {n_sites + 1}–{issue_last}, "
+                    f"non-issue site charts {non_site_first}–{non_site_last}, "
+                    f"non-issue ERBS charts {non_erbs_first}–{non_erbs_last}.",
                 ),
             ],
         ),
@@ -3800,10 +3840,13 @@ def write_method(
                 (
                     "Why these rows exist",
                     "So an issue chart and a non-issue chart can be compared. Nothing else. "
-                    "Ten physical sites, in the physical database, on neither dashboard. "
+                    "Up to 10 physical sites, in the physical database, on neither dashboard. "
+                    "Each site has exactly one ERBS. A site with two different ERBS ids is not used. "
+                    "Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. "
                     "Every ERBS and the site have at least 24 samples, Peak at least 20, a positive license, "
-                    "touch ratio under 5%, and license-hour share under 5%, with 1 to 3 ERBS. "
-                    "Only if fewer than 10 sites are found, relax to at most 6 ERBS and under 10%.",
+                    "touch ratio under 5%, and license-hour share under 5%. "
+                    "Only if fewer than 10 sites are found, relax touch and license share to under 10%. "
+                    "The one-ERBS rule and the 15 Mbps floor stay.",
                 ),
                 (
                     "Where they are written",
@@ -3927,14 +3970,12 @@ def write_workbook(
     chart_end = period_end.normalize()
     chart_start = chart_end - pd.Timedelta(days=fcc.SNAP_DAYS - 1)
     charts = _prepare_charts(work, records, license_summary, LEVEL_ERBS)
-    chart_index = {item["site"]: i for i, item in enumerate(charts)}
     site_charts: list[dict] = []
     site_chart_index: dict[str, int] = {}
     if site_work is not None and site_records is not None:
         site_charts = _prepare_charts(site_work, site_records, site_license_summary, LEVEL_SITE)
-        site_chart_index = {
-            item["site"]: len(charts) + i for i, item in enumerate(site_charts)
-        }
+        site_chart_index = {item["site"]: i for i, item in enumerate(site_charts)}
+    chart_index = {item["site"]: len(site_charts) + i for i, item in enumerate(charts)}
     n_tx = sum(1 for rec in records if rec["category"] == CAT_TX)
     n_tx_site = sum(1 for rec in (site_records or []) if rec["category"] == CAT_TX)
     print(
@@ -4000,29 +4041,25 @@ def write_workbook(
             flush=True,
         )
     non_note = (
-        "These sites are not on the Dashboard. None of their ERBS is Tx Flat/Chocked, "
-        "Peak Touch, or License usage. The rows and the green Non Issue charts are for "
-        "comparison only. "
+        "Each site has one ERBS, so two ERBS ids are not the same site. "
+        "Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. "
+        "These sites are not on the Dashboard. "
+        "The rows and the green Non Issue charts are for comparison only. "
         + ", ".join(item["site"] for item in non_sites)
     )
-    write_site_list(
-        book, styles, period_txt, charts, busy_by_code, erbs_tp=erbs_tp,
-        tail=non_erbs,
-        tail_title="Non Issues ERBS",
-        tail_note="ERBS for 10 sites which have no problem or issues. " + non_note,
-        tail_offset=len(charts) + len(site_charts),
-    )
+    n_issue = len(site_charts) + len(charts)
     if site_charts:
         write_site_list(
             book, styles, period_txt, site_charts, busy_by_code,
             sheet_name=SITE_LIST_SITE_SHEET,
             name_header="Site Name",
-            chart_offset=len(charts),
+            chart_offset=0,
             title="Site list — site level",
             tab_color="#C65911",
             intro=(
                 f"{period_txt}. Site Name = LEFT(ERBS, 7). "
                 "These rows are the sites on the Site Level Dashboard. "
+                "No. starts at 1. The ERBS list continues after these numbers. "
                 "Peak is the highest hourly SUM of Max DL Capacity Usage across the ERBS of that site. "
                 "License is the SUM of dlBbCapacityNet for the NodeIds of that site. UL is not used. "
                 "OSS 4H/1H follows the previous rule: Site Name = LEFT(EUtranCell Id, 7), L900 cells dropped, "
@@ -4037,11 +4074,19 @@ def write_workbook(
             site_bands=site_bands,
             tail=non_sites,
             tail_title="Non Issues Sites",
-            tail_note="10 sites which have no problem or issues. " + non_note,
-            tail_offset=len(charts) + len(site_charts) + len(non_erbs),
+            tail_note="10 different sites, one ERBS each, Peak above 15 Mbps. " + non_note,
+            tail_offset=n_issue,
         )
-    issue_charts = charts + site_charts
-    all_charts = issue_charts + non_erbs + non_sites
+    write_site_list(
+        book, styles, period_txt, charts, busy_by_code, erbs_tp=erbs_tp,
+        chart_offset=len(site_charts),
+        tail=non_erbs,
+        tail_title="Non Issues ERBS",
+        tail_note="One ERBS for each of 10 different sites. Peak above 15 Mbps. " + non_note,
+        tail_offset=n_issue + len(non_sites),
+    )
+    issue_charts = site_charts + charts
+    all_charts = issue_charts + non_sites + non_erbs
     work_by_level = {LEVEL_ERBS: work}
     if site_work is not None:
         work_by_level[LEVEL_SITE] = site_work

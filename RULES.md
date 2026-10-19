@@ -1,12 +1,12 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v31.** The section [Current Ericsson report — v31](#current-ericsson-report--v31) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v31 was built from. Where they disagree, v31 wins.
+**Current report is v32.** The section [Current Ericsson report — v32](#current-ericsson-report--v32) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v32 was built from. Where they disagree, v32 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v31.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v32.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.html`.
 
-## Current Ericsson report — v31
+## Current Ericsson report — v32
 
-The detection, listing, dashboard, GeoPlot, Immediate actions, and chart-page rules are the v30 rules. v31 writes those rules on a new sheet named **Method**, for the Excel report and for the chart page. The chart file name is v31. The page inside it is the two-tab page built for v28, copied and not rebuilt. The title inside the page still says Excel v28. Do not rebuild the HTML unless asked.
+v32 keeps the v31 rules, with three layout changes. Site Level Dashboard is on top of the Dashboard sheet, and ERBS Dashboard is below it. No. starts at 1 on the Site Level charts and continues on the ERBS charts. `1. Site List_SiteLevel` is the sheet after Dashboard. `1. Site List_ERBS` follows it. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps for that ERBS and for the site. A site with two ERBS ids is not used. Sheet `Method` still holds these rules. The chart file name is v32. The page inside it is the two-tab page built for v28, copied and not rebuilt. The title inside the page still says Excel v28. Do not rebuild the HTML unless asked.
 
 ### Sheet Method
 
@@ -51,7 +51,7 @@ Order: Tx Flat/Chocked, then Peak Touch, then License usage. A name on both the 
 
 ### Two dashboards
 
-The ERBS dashboard stays on the full ERBS. Site-hour Max DL is the SUM of Max DL Capacity Usage for every ERBS of that Site Name, on that date and hour. The Site Level dashboard is written under the ERBS dashboard and uses the site-hour Max DL and the summed site license.
+Site Level Dashboard is on top. ERBS Dashboard is below it. No. starts at 1 on the Site Level charts and continues on the ERBS charts. Site-hour Max DL is the SUM of Max DL Capacity Usage for every ERBS of that Site Name, on that date and hour. The ERBS dashboard stays on the full ERBS and uses that NodeId's license.
 
 ### Cell owner, Band, and TP Range
 
@@ -71,7 +71,7 @@ Four columns after Severity, on both lists. Yes when either 1H block matches. DL
 
 ### Sheets
 
-Dashboard (ERBS, then Site Level). `1. Site List_ERBS`. `1. Site List_SiteLevel`. `2. HourlyChartOfIssueSites`. `3. Hourly KPI` (issue hours only; Level is `ERBS` or `Site`). `5. GeoPlot`. `URGENTBWINC_BusyHour`. `7. Immediate actions`. Sheet `6. Missing FEG Port` is not written. Comparison stays skipped until a previous-window FEG file is provided. The dashboard note counts OSS sites with no ERBS in the FEG file (3 in this window) and does not name sheet 6.
+Dashboard (Site Level, then ERBS). `1. Site List_SiteLevel`. `1. Site List_ERBS`. `2. HourlyChartOfIssueSites`. `3. Hourly KPI` (issue hours only; Level is `ERBS` or `Site`). `5. GeoPlot`. `URGENTBWINC_BusyHour`. `7. Immediate actions`. Sheet `6. Missing FEG Port` is not written. Comparison stays skipped until a previous-window FEG file is provided. The dashboard note counts OSS sites with no ERBS in the FEG file (3 in this window) and does not name sheet 6.
 
 ### GeoPlot
 
@@ -91,9 +91,9 @@ Total 362. Medium and Decision are never listed. Throughput above 10 Mbps with v
 
 ### Non-issue comparison (Excel only)
 
-Ten physical sites that are on neither dashboard, so an issue chart and a non-issue chart can be compared. First pass: in the physical database, 1–3 ERBS, every ERBS and the site have at least 24 samples, Peak at least 20, a positive license, touch ratio under 5%, and license-hour share under 5%. Only if fewer than 10 are found, relax to at most 6 ERBS and under 10%.
+Up to 10 physical sites that are on neither dashboard, so an issue chart and a non-issue chart can be compared. Each site has exactly one ERBS. A site with two ERBS ids is not used. Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. Every name has at least 24 samples, Peak at least 20, a positive license, touch ratio under 5%, and license-hour share under 5%. Only if fewer than 10 are found, relax touch and license share to under 10%. The one-ERBS rule and the 15 Mbps floor stay.
 
-Sites: `BBAKD03`, `BBAKD04`, `BBAKD05`, `BBAKD10`, `BBAKD11`, `BBLMA05`, `BBLMA11`, `BBLMA17`, `BBLMA18`, `BBLMA19` (16 ERBS). Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Charts are tagged `Non Issue · ERBS` or `Non Issue · Site` and follow the issue charts (numbers 1362–1387; issue charts are 1–1361). They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
+Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are numbered first, then issue ERBS charts, then the non-issue site charts, then the non-issue ERBS charts. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
 
 ### Chart page
 
