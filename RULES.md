@@ -1,4 +1,118 @@
-# FEGE site choking rules (v84) — Ericsson
+# FEGE site choking rules — Ericsson
+
+**Current report is v35.** The section [Current Ericsson report — v35](#current-ericsson-report--v35) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v35 was built from. Where they disagree, v35 wins.
+
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v35.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v35_Charts.html`.
+
+## Current Ericsson report — v35
+
+v35 keeps the v34 workbook and revises sheet **ActionPlan** to eight orders. The rows are still Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User.
+
+1. Volume > 100 GB and DL throughput < 5 Mbps
+2. Volume > 100 GB and DL throughput < 7 Mbps
+3. DL throughput < 5 Mbps and Max User > 500 and PRB > 85%
+4. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%
+5. Volume > 50 GB and DL throughput < 5 Mbps
+6. Volume > 50 GB and DL throughput < 7 Mbps
+7. DL throughput < 7 Mbps and Max User > 500
+8. DL throughput < 10 Mbps
+
+Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is the two-tab page built for v28, copied and not rebuilt. Do not rebuild the HTML unless asked.
+
+### Sheet Method
+
+Sheet name is `Method`. It sits after `3. Hourly KPI`. Two columns: Rule, and How it is applied. Sections cover Site Name, the window, license, Peak Touch, Tx Flat/Chocked, the two dashboards, cell ownership, Band, TP Range, BH Flag 1H, the other sheets, GeoPlot, Immediate actions, the 10 non-issue comparison sites, and the chart page. The chart page has no sheets of its own. Its rules are the Chart page section of `Method`.
+
+Runner: `scripts/fege_peak_touch_ericsson.py`. Spelling **Chocked** is intentional. UL is never used. `ERBS Id` means `ERBS`. There is no separate ERBS id.
+
+### Site Name
+
+`ERBS`, `ERBS Id`, and `NodeId` are the same kind of id. `EUtranCell Id` and `Cell Name` are the same kind of id.
+
+Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, or `LEFT(EUtranCell Id, 7)`. `CGPTA90` and `CGPTA90L` are both site `CGPTA90`.
+
+### Window, trace, and guards
+
+Window **11–13 Oct 2026**, 72 hours. Trace is only `Max DL Capacity Usage (Mbps)`. Score a name only when it has at least 24 hourly samples and Peak is at least 20 Mbit/s. A license of 0 or below, or a missing license row, is not license-scored. Busy-hour touch (08:00–22:00) and Where touched do not change the grade.
+
+### License
+
+`dlBbCapacityNet` is Mbps. Skip `ulBbCapacityNet`.
+
+- ERBS license = that NodeId's `dlBbCapacityNet`.
+- Site license = the SUM of `dlBbCapacityNet` for every NodeId of the Site Name, one row per NodeId.
+
+CGPTA90 = 225 + 300 = **525 Mbps**. CGLHG01 = 375 + 75 + 750 = **1200 Mbps**.
+
+An hour counts when Max DL / license is at least 85%. License usage lists a name when those hours are at least 20% of its hours. Severity: Severe at least 50%, High 40% up to but not including 50%, Medium 30% up to but not including 40%, Low 20% up to but not including 30%. Under 20% is not listed.
+
+### Peak, touch, and the three categories
+
+Same floors for an ERBS and for a site.
+
+- Peak = the highest hourly Max DL.
+- Below5%Peak = Peak × 0.95. An hour touches when Max DL is at or above that line.
+- Touch ratio = touch hours ÷ hours with data.
+
+Peak Touch: Severe at least 40%, High 30% up to but not including 40%, Medium 20% up to but not including 30%, Low 10% up to but not including 20%. Under 10% is not listed.
+
+Tx Flat/Chocked: a listed name whose Gap = (License − Peak) / License is at least 10%. Comment: Tx Issues Suspected. The gap severity replaces the Peak Touch severity: Severe at least 40%, High 30% up to but not including 40%, Medium 20% up to but not including 30%, Low 15% up to but not including 20%, Decision 10% up to but not including 15%.
+
+Order: Tx Flat/Chocked, then Peak Touch, then License usage. A name on both the peak list and the license list is drawn once. License-only names follow.
+
+### Two dashboards
+
+Site Level Dashboard is on top. ERBS Dashboard is below it. No. starts at 1 on the Site Level charts and continues on the ERBS charts. Site-hour Max DL is the SUM of Max DL Capacity Usage for every ERBS of that Site Name, on that date and hour. The ERBS dashboard stays on the full ERBS and uses that NodeId's license.
+
+### Cell owner, Band, and TP Range
+
+Band from `MID(EUtranCell Id, 8, 3)`: `L09` when characters 8–10 start with `L09`, `L21`, `L26`, otherwise `L18` (including LA, LB, LC).
+
+- L09 cells belong to the ERBS that equals the site code, when that ERBS exists. `CGPTA90L09A/B/C` belong to `CGPTA90`.
+- L18, L21, and L26 belong to the ERBS that is the site code plus `L`, when that ERBS exists. Those 12 cells belong to `CGPTA90L`.
+- The site counts each cell once (15 for CGPTA90). An ERBS that is the only node keeps every cell. `B01` and `B02` cannot be read from the cell name; cells of nodes that cannot be told apart are shared.
+- OSS throughput, PRB, volume, and users still drop L900. TP Range also excludes L900. An L09-only ERBS or site has a blank TP Range, not zeros. `CGPTA90` is blank. `CGPTA90L` keeps the capacity counts (Data 4H: 0, 0, 0, 3, 6, 0, 1, 2). The site counts those same 12 capacity cells.
+- ERBS Band and site Band still show L09. No word "cells". `CGPTA90` is `L09` (navy header `#1F4E79`). `CGPTA90L` is `L18+L21+L26`. Site `CGPTA90` is `L09+L18+L21+L26` (cyan header `#00B0F0`). The ERBS sheet is `1. Site List_ERBS`.
+
+Busy hours are the cell busy hours. 1 BusyHour is the top hour on each of 3 dates (3 hours). 4 BusyHour is the top 4 hours on each date (12 hours). Cell DL throughput is sum(Num) / sum(Denom). Bins: ≤3, 3–4, 4–5, 5–7, 7–8, 8–9, 9–10, ≥10. ≤3 includes 3. ≥10 includes 10. Middle bins do not overlap. The chart sheet puts Data 4H/1H and User 4H/1H cell-count tables to the right of the OSS KPI table. The HTML page does not show TP Range or 4H.
+
+### BH Flag 1H
+
+Four columns after Severity, on both lists. Yes when either 1H block matches. DL Throughput<7Mbps is ≤ 7. Data Vol>50GB is ≥ 50. DL Throughput<5Mbps is ≤ 5. Data Vol>100GB is ≥ 100. The flag does not add or remove names. Immediate actions use stricter tests (`< 5`, `> 100`).
+
+### Sheets
+
+Dashboard (Site Level, then ERBS). `1. Site List_SiteLevel`. `1. Site List_ERBS`. `2. HourlyChartOfIssueSites`. `3. Hourly KPI` (issue hours only; Level is `ERBS` or `Site`). `5. GeoPlot`. `URGENTBWINC_BusyHour`. `ActionPlan`. `7. Immediate actions`. Sheet `6. Missing FEG Port` is not written. Comparison stays skipped until a previous-window FEG file is provided. The dashboard note counts OSS sites with no ERBS in the FEG file (3 in this window) and does not name sheet 6.
+
+### GeoPlot
+
+One dot per physical site. The site is an issue when any ERBS is on the ERBS dashboard or the site is on the Site Level dashboard. Grade is the worst display severity. Medium is drawn as Moderate. Decision stays Decision. A license-only site keeps its license grade. It is not forced to Low. A physical site that is not an issue is drawn as Non-issue. A code with no latitude and longitude is not drawn. This window: 886 issue sites = 467 on both dashboards + 277 ERBS-only + 142 SiteLevel-only. The 10 comparison sites are not added.
+
+### Immediate actions
+
+`1. Site List_SiteLevel` only. Data 1H or User 1H only. First match wins:
+
+1. Data Volume > 100 GB, Severe or High. 76. Exactly 100 GB does not match.
+2. DL throughput < 5 Mbps, Severe or High. 62. A Severe or High site that also has Max User ≥ 500 stays here.
+3. DL throughput < 5 Mbps and Max User ≥ 500 on the same 1H block, Severe, High, or Low. 7. These are Low in practice.
+4. DL throughput from 5 Mbps up to but not including 8 Mbps, Severe or High. 150. Exactly 5 is mid.
+5. DL throughput from 8 Mbps through 10 Mbps, Severe or High. 67. Exactly 8 and exactly 10 are low.
+
+Total 362. Medium and Decision are never listed. Throughput above 10 Mbps with volume at or under 100 GB is not listed.
+
+### Non-issue comparison (Excel only)
+
+Up to 10 physical sites that are on neither dashboard, so an issue chart and a non-issue chart can be compared. Each site has exactly one ERBS. A site with two ERBS ids is not used. Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. Every name has at least 24 samples, Peak at least 20, a positive license, touch ratio under 5%, and license-hour share under 5%. Only if fewer than 10 are found, relax touch and license share to under 10%. The one-ERBS rule and the 15 Mbps floor stay.
+
+This window: `BBAKD04`, `BBAKD10`, `BBAKD11`, `BBLMA17`, `BBLMA19`, `BBLMA22`, `BBLMA28`, `BBNKC09`, `BBNKC19`, `BBNKC20`. Each has one ERBS (`BBAKD04_01`, `BBAKD10B01`, `BBAKD11B01`, `BBLMA17`, `BBLMA19B01`, `BBLMA22B01`, `BBLMA28B01`, `BBNKC09B01`, `BBNKC19`, `BBNKC20B01`). Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are 1–609, issue ERBS charts are 610–1361, non-issue site charts are 1362–1371, and non-issue ERBS charts are 1372–1381. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
+
+### Chart page
+
+Two tabs. **ERBS** (navy `#1F4E79`) and **SiteLevel** (teal `#0E7490`). Same filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. Same five lines: Max DL, Peak, Below5%Peak, license, 85% of license. OSS panels are Data 1H and User 1H only. Hash `#ERBS/name` or `#SiteLevel/name`.
+
+ERBS All Sites is every FEG ERBS, license per NodeId. SiteLevel All Sites sums Max DL by Site Name and sums the license. Built counts: ERBS 752 listed and 11,126 All Sites. SiteLevel 609 listed and 6,486 All Sites. ERBS `CGPTA90` is band `L09` and license 225. `CGPTA90L` is `L18+L21+L26` and license 300. Site `CGPTA90` is `L09+L18+L21+L26` and license 525.
+
+---
 
 This file is the saved copy of every rule used for the FEGE choke report.
 
@@ -80,7 +194,64 @@ Layer token is still Excel `MID(EUtranCell Id, 8, 3)`. Drop L900 when that token
 
 v11–v13: the FEG window was 3–5 Oct and the OSS window was 11–13 Oct, so Hours matched stayed 0. v14 scores the 11–13 Oct FEG file, the same days as the OSS files, so Hours matched counts a busy hour that is also a Below5%Peak touch hour on that date. v15 writes that same window on every sheet: Dashboard, Site List, each issue chart, Hourly KPI, GeoPlot, BusyHour, Missing FEG Port, and Immediate actions. The 4H/1H KPI values are filled in both cases. Sheet `6. Missing FEG Port` compares OSS site codes with the first 7 characters of the ERBS. Sheet `7. Immediate actions` is Severe or High only, using the OSS 4H/1H volume and throughput. `URGENTBWINC_BusyHour` scans every capacity OSS site. On that sheet, skip the BH Flag block and the three Filtering blocks (1H only, 4H only, 7H/4H/1H). Keep Site, and the Data/User 7H, 4H, and 1H blocks. The chart sheet has the same 4H/1H table to the right of each chart.
 
-**5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. A site listed only by the license rule is drawn as Low. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
+**5. GeoPlot** plots one dot per physical site. A site is an issue when any of its ERBS is on the Dashboard. Severity is the worst Peak-touch grade at that site. Medium is drawn as Moderate, the name on the map legend. v11 drew a license-only site as Low. v30 does not: the dot keeps the license display severity, and Medium is still drawn as Moderate. Maps: national, the four top thanas, then clusters until every geo-located issue site is on a map. Each map has a severity companion. Sheet order: Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot.
+
+### v23 Site level (Excel only)
+
+The ERBS dashboard and sheet `1. Site List` stay on the full ERBS / NodeId. v23 adds a second dashboard under that one.
+
+- Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, and `LEFT(EUtranCell Id, 7)`. `Cell Name` is the same column as `EUtranCell Id`. `NodeId` is the same kind of id as `ERBS`.
+- Site-hour Max DL = the SUM of `Max DL Capacity Usage (Mbps)` for every ERBS of that Site Name, on that date and hour. Example: CGPTA90 hour 0 = CGPTA90 + CGPTA90L.
+- Site license = the SUM of `dlBbCapacityNet` for every NodeId of that Site Name. Example: CGPTA90 = 225 + 300 = 525 Mbps. CGLHG01 = 375 + 75 + 750 = 1200 Mbps. `ulBbCapacityNet` is not used.
+- The three categories use the same floors as the ERBS dashboard. The site-level result is written under the ERBS dashboard, on sheet `1. Site List_SiteLevel`, and as extra charts on `2. HourlyChartOfIssueSites`.
+- Each chart has a tag on the row just above the plot: `ERBS` or `Site`. ERBS charts stay first, so `1. Site List` still opens the same chart.
+- OSS on the site-level list follows the previous cell rollup: L900 dropped, sums for volume and users, throughput and PRB from Num/Denom.
+- GeoPlot still draws one dot per physical site. The full site is plotted when any of its ERBS is an issue, and also when the site-level dashboard lists it. The dot keeps the worst grade.
+- v30 adds 10 sites that are on neither dashboard, at the bottom of `1. Site List_ERBS` (every ERBS of those sites) and `1. Site List_SiteLevel` (the 10 sites). Their charts are tagged Non Issue, for comparison. They are not added to the Dashboard, GeoPlot issue set, or Immediate actions.
+- HTML is not rebuilt in v23.
+
+### v24 TP Range on the site lists
+
+On `1. Site List` and `1. Site List_SiteLevel`, each of the four OSS blocks (Data 4h, User 4h, Data 1h, User 1h) is followed by **TP Range in Mbps (Sum of Cell Count)**: ≤3, 3–4, 4–5, 5–7, 7–8, 8–9, 9–10, ≥10.
+
+A cell is counted once for that block. Its DL throughput is Num/Denom summed over the block's busy hours. ≤3 includes 3 Mbps. ≥10 includes 10 Mbps. The middle bins do not overlap. L900 cells are dropped, the same cells behind the block's DL throughput. The cell's site is the first 7 characters of `EUtranCell Id`. Each ERBS of a site shows that site's cell counts, because the cell name does not carry the B01 / _01 node id. The chart-page HTML is not rebuilt.
+
+### v28 L900 is out of the TP Range
+
+TP Range counts capacity cells only. L09 cells are not added to a bin. An ERBS or a site whose cells are all L09 has a blank TP Range, not zeros. `CGPTA90` is blank. `CGPTA90L` still shows the L18, L21, and L26 cell counts. Site `CGPTA90` counts those same capacity cells.
+
+ERBS Band and the site Band stay as they are. `CGPTA90` remains `L09`. Site `CGPTA90` remains `L09+L18+L21+L26`.
+
+The chart page for v28 has two tabs. **ERBS** opens `1. Site List_ERBS`. **SiteLevel** opens `1. Site List_SiteLevel`. Each tab uses the same filters (All, Tx Flat/Chocked, Peak Touch, License usage, All Sites), the same five chart lines, and the same 1 BusyHour OSS blocks. OSS is still the 7-character site, with L900 dropped. On SiteLevel, Max DL is the sum of the ERBS values for that site, date, and hour, and the license is the sum of `dlBbCapacityNet`. The ERBS Band or the site Band is shown on the chart. That page was built as `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`. v29 and v30 copy it unchanged to `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html`. The title inside the page still says Excel v28.
+
+### v27 Band columns and the ERBS sheet name
+
+- Sheet `1. Site List` is renamed `1. Site List_ERBS`.
+- ERBS Band no longer says "cells". `CGPTA90` is `L09`. `CGPTA90L` is `L18+L21+L26`. The header uses the same navy fill as Site Type.
+- `1. Site List_SiteLevel` has a **Band** column after Site Type. The value is every band at the site. The layer token is `MID(EUtranCell Id, 8, 3)`: `L09`, `L21`, `L26`, and `L18` for every other cell. Site `CGPTA90` is `L09+L18+L21+L26`.
+
+### v26 ERBS cells, including L900, in the TP Range
+
+TP Range cell counts now follow the ERBS, and L900 is included. OSS 4H/1H throughput, volume, users, and PRB still drop L900.
+
+- A cell's band is `L09` when characters 8–10 start with `L09`, `L21` for `L21`, `L26` for `L26`, and `L18` for every other cell (LA, LB, LC, and the rest).
+- L09 cells belong to the ERBS whose id equals the site code, when that ERBS exists. Example: `CGPTA90L09A` belongs to `CGPTA90`.
+- L18, L21, and L26 cells belong to the ERBS whose id is the site code plus `L`, when that ERBS exists. Example: `CGPTA90L21A`, `CGPTA90L26A1`, and `CGPTA90LA` belong to `CGPTA90L`.
+- An ERBS that is the only node of its site keeps every cell, coverage and capacity together.
+- The site row counts each cell once, so site CGPTA90 is the 3 L09 cells plus the 12 L18/L21/L26 cells.
+- `1. Site List` has an **ERBS Band** column after Site Type. One band reads `L09 Cells`. Several bands read `L18+L21+L26 cells`.
+- The chart TP Range table uses the same split: an ERBS chart shows that ERBS's cells, and a Site chart shows every cell of the site.
+
+### v25 TP Range beside the chart
+
+Site busy hours are the cell busy hours. Over 11–13 Oct (3 dates):
+
+- 1 BusyHour: the top hour on each date, 3 hours in total. Data uses data volume. User uses max user.
+- 4 BusyHour: the top 4 hours on each date, 12 hours in total.
+
+For each capacity cell, DL throughput = sum of `Average User Throughput in DownLink (Mbps)_Num` / sum of `_Denom` over those hours. The cell goes into one of the eight bins, and the column is the count of cells.
+
+`2. HourlyChartOfIssueSites` keeps the OSS KPI table, then adds two tables to its right. The left table is Data 4H over Data 1H. The right table is User 4H over User 1H. Columns are Busy Hour, TP Range, Mbps, and Cell Count. An ERBS chart and its Site chart show the same counts, because both use the 7-character site. HTML is not rebuilt.
 
 A license of 0 or below, or an ERBS with no license row, is not scored. License sort: share of hours descending, then site name.
 
@@ -498,28 +669,29 @@ Sheet **Comparison**. All sites. RxMaxSpeed only (no Tx Total BW columns).
 | _GeoData | Hidden coordinates |
 | UrgentTxBWInc | Urgent upgrade list + thana summary |
 | URGENTBWINC_BusyHour | Capacity-only OSS busy hours, flags, 7/4/1 blocks, including Mean User |
-| 6. Missing FEG Port | OSS KPI sites with no FEG row. Action is to configure the FEG port. Compare FEG with OSS, not the physical site database |
-| 7. Immediate actions | Severe or High only. OR across Data 4H, User 4H, Data 1H, and User 1H. One tag per site |
+| 6. Missing FEG Port | Not written from v29 |
+| 7. Immediate actions | `1. Site List_SiteLevel` only. BH Flag 1H blocks only. One tag per site, first match |
 | Comparison | RxMaxSpeed ceiling step-up, when a previous window exists |
 
 Report file name must include the version: `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`.
 
 ### Missing FEG port
 
-A site that is in the capacity OSS KPI and absent from the FEG file is not choke-scored. The FEG port is not configured, so FEG KPI is not collected. Dashboard row 3 states the count. Sheet `6. Missing FEG Port` lists every such site with action **Configure FEG port**. Do not use the physical site database for this compare.
+v29 does not write sheet `6. Missing FEG Port`. A site that is in the capacity OSS KPI and absent from the FEG file is still not choke-scored. The dashboard note states the count. Do not use the physical site database for this compare.
 
 ### Immediate actions
 
-Sheet `7. Immediate actions`. Severe or High only. OR across the four windows Data 4H, User 4H, Data 1H, and User 1H: if any one window matches, the site is listed.
+Sheet `7. Immediate actions` (v29). The list is `1. Site List_SiteLevel` only. The test is the BH Flag 1H pair only: DataBusyHour (1 BusyHour) and UserBusyHour (1 BusyHour). 4 BusyHour is not used. Either 1H block can match, the same way BH Flag 1H becomes Yes.
 
-Each site is listed once, under the strongest customer-experience tag:
+A site is listed once, under the first criterion it matches, and is not counted on a later row:
 
-1. High Priority: any of the four Data Volume values **> 100 GB**
-2. High Priority: any of the four DL throughput values **< 5 Mbps**
-3. Mid Priority: any of the four DL throughput values from **5 Mbps up to but not including 8 Mbps**
-4. Low Priority: any of the four DL throughput values from **8 Mbps through 10 Mbps**
+1. High Priority: Data Volume **> 100 GB**, and Severity is Severe or High
+2. High Priority: DL throughput **< 5 Mbps**, and Severity is Severe or High
+3. High Priority: DL throughput **< 5 Mbps** and Max User **≥ 500** on the same 1H block, and Severity is Severe, High, or Low
+4. Mid Priority: DL throughput from **5 Mbps up to but not including 8 Mbps**, and Severity is Severe or High
+5. Low Priority: DL throughput from **8 Mbps through 10 Mbps**, and Severity is Severe or High
 
-A louder window wins over a milder one. Volume above 100 GB wins over throughput. Throughput above 10 Mbps with volume at or under 100 GB is not listed.
+Medium and Decision are not listed. Throughput above 10 Mbps, with volume at or under 100 GB, is not listed. Exactly 5 Mbps is the mid band. Exactly 8 Mbps is the low band. Exactly 100 GB is not the volume row.
 
 Excel freeze panes are off. Formula and scoring notes stay on Method, not on Dashboard or Site List.
 

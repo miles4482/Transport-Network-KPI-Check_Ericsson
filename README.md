@@ -2,7 +2,7 @@
 
 FEGE site-choking (Transmission Link Health Review) report for the Ericsson zone.
 
-All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`).
+All rules are saved in `RULES.md`. The operative set is the section **Current Ericsson report — v35**, for the Excel workbook and the chart page. The same rules are written on the workbook sheet `Method`. Later sections are the history copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`). Where they disagree, v35 wins.
 
 ## Files required to prepare a similar report
 
@@ -10,7 +10,7 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 
 | File | Purpose |
 |---|---|
-| `RULES.md` | The full v84 rule set: detection, listing, severity, charts, GeoPlot, UrgentTxBWInc, OSS cell-to-site rollup, URGENTBWINC_BusyHour, Site List 4H/1H block, Missing FEG Port, Immediate actions, Comparison, workbook layout |
+| `RULES.md` | Current v30 rules for the Excel workbook and the chart page, then the older v84 history |
 | `.cursor/rules/fege-choke-rules.mdc` | Always-on Cursor rule that points the agent to `RULES.md` and states how to read uploaded files |
 | `rules/V14_LOGIC.md` | Frozen V14 detection baseline (crowded level / hard ceiling shapes) that every later version builds on |
 
@@ -57,12 +57,38 @@ Python packages used: `pandas`, `numpy`, `xlsxwriter`, `pillow`. The `unrar` com
 
 | File | Contents |
 |---|---|
-| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 6. Missing FEG Port, 7. Immediate actions. Comparison waits for a previous-window FEG file |
+| `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx` | Dashboard, 1. Site List_ERBS, 1. Site List_SiteLevel, 2. HourlyChartOfIssueSites, 3. Hourly KPI, 5. GeoPlot, URGENTBWINC_BusyHour, 7. Immediate actions. Comparison waits for a previous-window FEG file. Sheet 6. Missing FEG Port is not written from v29 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v23.xlsx` | v22 ERBS dashboard and `1. Site List` kept. Site Level Dashboard added underneath. New sheet `1. Site List_SiteLevel`. Site charts tagged on `2. HourlyChartOfIssueSites`. GeoPlot includes a physical site when any ERBS is an issue. The chart-page HTML stays at 22.6 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v24.xlsx` | v23 plus TP Range cell counts on `1. Site List` and `1. Site List_SiteLevel`, after each 4h and 1h OSS block. The chart-page HTML stays at 22.6 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v25.xlsx` | v24 plus the TP Range cell-count table on `2. HourlyChartOfIssueSites`, to the right of the OSS KPI table. 1 BusyHour pools 3 hours and 4 BusyHour pools 12 hours. The chart-page HTML stays at 22.6 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v26.xlsx` | v25 plus per-ERBS TP Range counts, including L900. `1. Site List` gains an ERBS Band column. OSS 4H/1H still drops L900. The chart-page HTML stays at 22.6 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v27.xlsx` | v26 with the ERBS sheet renamed `1. Site List_ERBS`. ERBS Band drops the word cells. `1. Site List_SiteLevel` gains a Band column. The chart-page HTML stays at 22.6 |
+| `FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx` | v27 with L900 removed from the TP Range. An ERBS that has only L09 cells has a blank TP Range. ERBS Band and the site Band are unchanged |
+| `FEGE_Choked_Flat_Sites_Ericsson_v29.xlsx` | v28 with sheet `6. Missing FEG Port` removed. `7. Immediate actions` is rebuilt from `1. Site List_SiteLevel` and the BH Flag 1H blocks only. A site is counted on the first matching priority row and not again |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx` | v29 plus 10 non-issue sites at the bottom of `1. Site List_ERBS` and `1. Site List_SiteLevel`, with comparison charts tagged Non Issue. Dashboard, GeoPlot, and Immediate actions are unchanged |
+| `FEGE_Choked_Flat_Sites_Ericsson_v31.xlsx` | v30 plus sheet `Method`. That sheet holds the Excel rules and the chart-page rules |
+| `FEGE_Choked_Flat_Sites_Ericsson_v32.xlsx` | Site Level Dashboard is first, then ERBS Dashboard. No. starts on the site charts. `1. Site List_SiteLevel` is the sheet after Dashboard. The 10 non-issue sites each have one ERBS, and Peak is above 15 Mbps |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33.xlsx` | v32 plus sheet `ActionPlan`, immediately before `7. Immediate actions`. Tx Flat/Chocked names from both issue lists, first matching rule only |
+| `FEGE_Choked_Flat_Sites_Ericsson_v34.xlsx` | ActionPlan uses seven orders. A name tagged on one order is not tagged on another |
+| `FEGE_Choked_Flat_Sites_Ericsson_v35.xlsx` | ActionPlan uses eight orders. A name tagged on one order is not tagged on another |
 | `FEGE_Choked_Flat_Sites_Ericsson_vN_GeoPlot.html` | Interactive Leaflet map on Google satellite tiles |
-| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.html` | Web chart page. The Excel workbook stays `v22`, and the page header shows Excel v22. HTML files move on their own: 22.1 chart list, 22.2 All Sites tab, 22.3 OSS 1h blocks, 22.4 hourly axis like sheet 2, 22.5 smaller KPI and OSS blocks, 22.6 a narrower site list so the chart is wider. Open the latest, 22.6 |
-| `FEGE_Choked_Flat_Sites_Ericsson_v22.N_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
+| `FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html` | Earlier chart page for Excel v22. One ERBS list only |
+| `FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html` | Chart page built for Excel v28. Two tabs: **ERBS** and **SiteLevel** |
+| `FEGE_Choked_Flat_Sites_Ericsson_v29_Charts.html` | The v28 chart page, renamed to the v29 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html` | The same chart page, renamed to the v30 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html` | The same chart page, renamed to the v31 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.html` | The same chart page, renamed to the v32 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33_Charts.html` | The same chart page, renamed to the v33 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v34_Charts.html` | The same chart page, renamed to the v34 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v35_Charts.html` | The same chart page, renamed to the v35 Excel version. The charts were not rebuilt |
+| `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.zip` | The same page, zipped so it can be downloaded. Unzip it and open the `.html` file. GitHub shows a raw `.html` as plain text, so that link does not run the page |
+| `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.zip` | The v31-named chart page, zipped. Unzip it and open the `.html` file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v32_Charts.zip` | The v32-named chart page, zipped. Unzip it and open the `.html` file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v33_Charts.zip` | The v33-named chart page, zipped. Unzip it and open the `.html` file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v34_Charts.zip` | The v34-named chart page, zipped. Unzip it and open the `.html` file |
+| `FEGE_Choked_Flat_Sites_Ericsson_v35_Charts.zip` | The v35-named chart page, zipped. Unzip it and open the `.html` file |
 
-Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v22.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v22.6_Charts.html`
+Chart page: `python3 scripts/fege_site_charts_html.py FEGE_Choked_Flat_Sites_Ericsson_v28.xlsx -o FEGE_Choked_Flat_Sites_Ericsson_v28_Charts.html`
 
 The workbook is about 70 MB. GitHub’s file page will not download it (“we can’t show files that are this big”). Use the `raw.githubusercontent.com` link for that file.
 
