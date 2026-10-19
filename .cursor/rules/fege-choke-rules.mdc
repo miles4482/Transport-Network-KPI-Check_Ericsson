@@ -1,18 +1,26 @@
 ---
-description: FEGE choke rules for the Ericsson report, copied from the NCCD v6 agent
+description: FEGE choke rules for the Ericsson report. Current report is v30.
 alwaysApply: true
 ---
 
-Follow `RULES.md` in the repo root. Those are the FEGE site-choking rules (v84, NCCD v6 state) copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report), branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`.
+Follow `RULES.md` in the repo root. The operative set is the section **Current Ericsson report — v30**. Later sections are history. Where they disagree, v30 wins.
 
-This repo is the Ericsson report. Use the same detection, listing, severity, chart, GeoPlot, UrgentTxBWInc, capacity-only OSS rollup, BusyHour flags, Site List 4H/1H block, Missing FEG Port, Immediate actions, and Comparison rules.
+This repo is the Ericsson report. The published files are `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx` and `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html`.
 
-Read uploaded files from the name. `OSS` in the name means OSS KPI. `FEG` or `FEGE` in the name means the FEG port KPI (`RxMaxSpeed` is the choke trace). A physical-site or site-database name means geo, Tech, and Site Type. A thana name means the GeoPlot thana list. Dates, V1/V2, and part numbers say how to combine files. They do not change what the file is. Do not require the old Dhaka or NCCD filenames.
+v30 in short:
 
-OSS and FEG use the same combine order, kept as separate finals: for each date, merge V1 part1+part2, merge V2 part1+part2, then merge V1+V2. Do the same for every other date. If a later upload uses a different version or part count, follow the tokens in the names. Score the dates inside the files and keep every threshold in `RULES.md`. DHAPT35 and DHAPT48 are the shape pattern, not a name filter.
+- Peak-touch on `Max DL Capacity Usage (Mbps)` only. UL is never used. Window 11–13 Oct 2026. Guards: at least 24 samples and Peak at least 20 Mbit/s.
+- Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, or `LEFT(EUtranCell Id, 7)`. `ERBS Id` means `ERBS`.
+- Site license is the sum of `dlBbCapacityNet`. Site-hour Max DL is the sum of the ERBS hours. CGPTA90 license is 525. CGLHG01 license is 1200.
+- Two dashboards and two lists: `1. Site List_ERBS` and `1. Site List_SiteLevel`. Same three categories: Tx Flat/Chocked, Peak Touch, License usage. Spelling **Chocked** is intentional.
+- TP Range excludes L900. An L09-only name has a blank TP Range, not zeros. Band columns still show L09. OSS throughput, PRB, volume, and users still drop L900.
+- GeoPlot draws one physical site when any ERBS is an issue or the site-level dashboard lists it. The grade is the worst display severity. Medium is drawn as Moderate. A license-only site keeps its license grade.
+- Sheet `6. Missing FEG Port` is not written. `7. Immediate actions` is the site list only, BH Flag 1H only, first match wins.
+- Ten non-issue sites sit at the bottom of both lists for Excel chart comparison. They are not on the Dashboard, GeoPlot issue set, Hourly KPI, Immediate actions, or the HTML page.
+- The chart page has two tabs, ERBS and SiteLevel. It is the v28 page renamed to v30. Do not rebuild it unless asked.
 
-The counter and column names in `RULES.md` are the Huawei export names. If the Ericsson export names them differently, map them to the same roles. Do not change thresholds or shapes.
+Read uploaded files from the name. `OSS` means OSS KPI. `FEG` or `FEGE` means the FEG port KPI. A physical-site or site-database name means geo, Tech, and Site Type. A thana name means the GeoPlot thana list. Dates, V1/V2, and part numbers say how to combine files. They do not change what the file is.
 
-Do not build a report until the Ericsson FEG, OSS, physical site database, and top-thana files are in the repo. Skip the Comparison sheet until the user provides the previous FEG file.
+OSS and FEG use the same combine order, kept as separate finals: for each date, merge V1 part1+part2, merge V2 part1+part2, then merge V1+V2. DHAPT35 and DHAPT48 are the shape pattern, not a name filter.
 
-Keep the BusyHour column spelling **Chocked**. Do not use Tx Total BW to list or grade a site. Do not read the old site-level OSS RAR; roll cell-level OSS to site-hour and drop L900 (`MID(Cell Name, 8, 3)` starts with `L09`). Report file name: `FEGE_Choked_Flat_Sites_Ericsson_vN.xlsx`.
+Do not use Tx Total BW to list or grade a site. Do not read the old site-level OSS RAR. Skip the Comparison sheet until a previous-window FEG file is provided. Do not treat `rules/V14_LOGIC.md` as this report. That file is the NCCD / Huawei baseline.

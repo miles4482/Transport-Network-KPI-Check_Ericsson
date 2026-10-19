@@ -2,7 +2,7 @@
 
 FEGE site-choking (Transmission Link Health Review) report for the Ericsson zone.
 
-All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`).
+All rules are saved in `RULES.md`. The operative set is the section **Current Ericsson report — v30**, for the Excel workbook and the chart page. Later sections are the history copied from agent `bc-be4dd871-6780-44f4-807d-7266aad9b277` (NCCD FEGE health report v6, branch `cursor/fege-choke-rules-b277` on `Transport-Network-KPI-Check_NCCD`). Where they disagree, v30 wins.
 
 ## Files required to prepare a similar report
 
@@ -10,7 +10,7 @@ All rules are saved in `RULES.md`. They were copied from agent `bc-be4dd871-6780
 
 | File | Purpose |
 |---|---|
-| `RULES.md` | The full v84 rule set: detection, listing, severity, charts, GeoPlot, UrgentTxBWInc, OSS cell-to-site rollup, URGENTBWINC_BusyHour, Site List 4H/1H block, Missing FEG Port, Immediate actions, Comparison, workbook layout |
+| `RULES.md` | Current v30 rules for the Excel workbook and the chart page, then the older v84 history |
 | `.cursor/rules/fege-choke-rules.mdc` | Always-on Cursor rule that points the agent to `RULES.md` and states how to read uploaded files |
 | `rules/V14_LOGIC.md` | Frozen V14 detection baseline (crowded level / hard ceiling shapes) that every later version builds on |
 
