@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-REPORT_VERSION = "v34"
+REPORT_VERSION = "v35"
 OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
 METHOD_SHEET = "Method"
@@ -3243,11 +3243,12 @@ ACTION_BLOCKS = (
 ACTION_TAGS = (
     ("vol100_tp5", "1. Volume >100 GB & Throughput <5 Mbps"),
     ("vol100_tp7", "2. Volume >100 GB & Throughput <7 Mbps"),
-    ("tp5_user_prb", "3. Throughput <5 Mbps & Max User >300 & PRB >75%"),
-    ("vol50_tp5", "4. Volume >50 GB & Throughput <5 Mbps"),
-    ("vol50_tp7", "5. Volume >50 GB & Throughput <7 Mbps"),
-    ("tp7", "6. Throughput <7 Mbps"),
-    ("tp10", "7. Throughput <10 Mbps"),
+    ("tp5_user500", "3. Throughput <5 Mbps & Max User >500 & PRB >85%"),
+    ("tp5_user300", "4. Throughput <5 Mbps & Max User >300 & PRB >75%"),
+    ("vol50_tp5", "5. Volume >50 GB & Throughput <5 Mbps"),
+    ("vol50_tp7", "6. Volume >50 GB & Throughput <7 Mbps"),
+    ("tp7_user500", "7. Throughput <7 Mbps & User >500"),
+    ("tp10", "8. Throughput <10 Mbps"),
 )
 ACTION_KPI = (
     ("tp_data_4h", "DL Throughput Data 4h (Mbps)"),
@@ -3282,7 +3283,14 @@ def _action_why(busy: dict, key: str) -> str:
         elif key == "vol100_tp7" and np.isfinite(vol) and vol > 100 and np.isfinite(tp) and tp < 7:
             hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
         elif (
-            key == "tp5_user_prb"
+            key == "tp5_user500"
+            and np.isfinite(tp) and tp < 5
+            and np.isfinite(users) and users > 500
+            and np.isfinite(prb) and prb > 85
+        ):
+            hits.append(f"{label} {tp:.2f} Mbps, Max User {users:.0f}, PRB {prb:.1f}%")
+        elif (
+            key == "tp5_user300"
             and np.isfinite(tp) and tp < 5
             and np.isfinite(users) and users > 300
             and np.isfinite(prb) and prb > 75
@@ -3292,8 +3300,8 @@ def _action_why(busy: dict, key: str) -> str:
             hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
         elif key == "vol50_tp7" and np.isfinite(vol) and vol > 50 and np.isfinite(tp) and tp < 7:
             hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
-        elif key == "tp7" and np.isfinite(tp) and tp < 7:
-            hits.append(f"{label} {tp:.2f} Mbps")
+        elif key == "tp7_user500" and np.isfinite(tp) and tp < 7 and np.isfinite(users) and users > 500:
+            hits.append(f"{label} {tp:.2f} Mbps, Max User {users:.0f}")
         elif key == "tp10" and np.isfinite(tp) and tp < 10:
             hits.append(f"{label} {tp:.2f} Mbps")
     return "; ".join(hits)
@@ -3430,7 +3438,7 @@ def write_action_plan(
     last_col = 7 + len(ACTION_KPI)
     ws.set_row(0, 28)
     ws.merge_range(0, 0, 0, last_col, "Action plan — Tx Flat/Chocked", styles["title"])
-    ws.set_row(1, 120)
+    ws.set_row(1, 148)
     ws.merge_range(
         1, 0, 1, last_col,
         f"{period_txt}. Issue sites from {SITE_LIST_SITE_SHEET} and {SITE_LIST_SHEET}. "
@@ -3442,10 +3450,12 @@ def write_action_plan(
         "A name is listed once, under the first order it matches, and is not tagged on any later order. "
         "Order 1 is volume > 100 GB and throughput < 5 Mbps. "
         "Order 2 is volume > 100 GB and throughput < 7 Mbps. "
-        "Order 3 is throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
-        "Order 4 is volume > 50 GB and throughput < 5 Mbps. "
-        "Order 5 is volume > 50 GB and throughput < 7 Mbps. "
-        "Order 6 is throughput < 7 Mbps. Order 7 is throughput < 10 Mbps. "
+        "Order 3 is throughput < 5 Mbps and Max User > 500 and PRB > 85%. "
+        "Order 4 is throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
+        "Order 5 is volume > 50 GB and throughput < 5 Mbps. "
+        "Order 6 is volume > 50 GB and throughput < 7 Mbps. "
+        "Order 7 is throughput < 7 Mbps and Max User > 500. "
+        "Order 8 is throughput < 10 Mbps. "
         "Every comparison is strict. "
         "OSS values are the physical-site busy hours, L900 dropped.",
         styles["note"],
@@ -4111,11 +4121,12 @@ def write_method(
                     "Order",
                     "1. Volume > 100 GB and DL throughput < 5 Mbps. "
                     "2. Volume > 100 GB and DL throughput < 7 Mbps. "
-                    "3. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
-                    "4. Volume > 50 GB and DL throughput < 5 Mbps. "
-                    "5. Volume > 50 GB and DL throughput < 7 Mbps. "
-                    "6. DL throughput < 7 Mbps. "
-                    "7. DL throughput < 10 Mbps. "
+                    "3. DL throughput < 5 Mbps and Max User > 500 and PRB > 85%. "
+                    "4. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
+                    "5. Volume > 50 GB and DL throughput < 5 Mbps. "
+                    "6. Volume > 50 GB and DL throughput < 7 Mbps. "
+                    "7. DL throughput < 7 Mbps and Max User > 500. "
+                    "8. DL throughput < 10 Mbps. "
                     "Each test is strict. A name tagged on one order is not tagged on another order.",
                 ),
             ],

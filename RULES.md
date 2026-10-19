@@ -1,20 +1,21 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v34.** The section [Current Ericsson report — v34](#current-ericsson-report--v34) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v34 was built from. Where they disagree, v34 wins.
+**Current report is v35.** The section [Current Ericsson report — v35](#current-ericsson-report--v35) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v35 was built from. Where they disagree, v35 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v34.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v34_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v35.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v35_Charts.html`.
 
-## Current Ericsson report — v34
+## Current Ericsson report — v35
 
-v34 keeps the v33 workbook and revises sheet **ActionPlan**. The rows are still Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block.
+v35 keeps the v34 workbook and revises sheet **ActionPlan** to eight orders. The rows are still Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User.
 
 1. Volume > 100 GB and DL throughput < 5 Mbps
 2. Volume > 100 GB and DL throughput < 7 Mbps
-3. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%
-4. Volume > 50 GB and DL throughput < 5 Mbps
-5. Volume > 50 GB and DL throughput < 7 Mbps
-6. DL throughput < 7 Mbps
-7. DL throughput < 10 Mbps
+3. DL throughput < 5 Mbps and Max User > 500 and PRB > 85%
+4. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%
+5. Volume > 50 GB and DL throughput < 5 Mbps
+6. Volume > 50 GB and DL throughput < 7 Mbps
+7. DL throughput < 7 Mbps and Max User > 500
+8. DL throughput < 10 Mbps
 
 Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is the two-tab page built for v28, copied and not rebuilt. Do not rebuild the HTML unless asked.
 
