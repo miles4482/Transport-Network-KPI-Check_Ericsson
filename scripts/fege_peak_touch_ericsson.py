@@ -48,7 +48,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-OUTPUT_DEFAULT = "FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx"
+REPORT_VERSION = "v31"
+OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
+CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
+METHOD_SHEET = "Method"
 SITE_LIST_SHEET = "1. Site List_ERBS"
 SITE_LIST_SITE_SHEET = "1. Site List_SiteLevel"
 LEVEL_ERBS = "ERBS"
@@ -3471,6 +3474,433 @@ def _comparison_chart(name: str, level: str, group: pd.DataFrame, stat: dict, te
     }
 
 
+def _rule_height(text: str) -> int:
+    """Row height for wrapped text in the Method detail column."""
+    lines = 0
+    for part in str(text).split("\n"):
+        lines += max(1, (len(part) + 95) // 96)
+    return min(220, max(28, lines * 15))
+
+
+def _place_sheet_after(book, sheet_name: str, after_name: str) -> None:
+    sheets = book.worksheets_objs
+    moving = next(ws for ws in sheets if ws.name == sheet_name)
+    sheets.remove(moving)
+    anchor = next(i for i, ws in enumerate(sheets) if ws.name == after_name)
+    sheets.insert(anchor + 1, moving)
+
+
+def write_method(
+    book,
+    styles,
+    *,
+    source_name: str,
+    period_txt: str,
+    charts: list[dict],
+    site_charts: list[dict],
+    non_erbs: list[dict],
+    non_sites: list[dict],
+    geo_records: list[dict],
+    license_only_sites: int,
+    busy_by_code: dict[str, dict],
+) -> None:
+    """Sheet Method: the rules for this Excel report and for the chart page."""
+    immediate = _site_immediate_rows(site_charts, busy_by_code)
+    tag_counts = {
+        key: sum(1 for rec in immediate if rec["tag_key"] == key)
+        for key, _name, _allowed in IMMEDIATE_TAGS
+    }
+    erbs_codes = {item["site_code"] for item in charts}
+    site_codes = {item["site_code"] for item in site_charts}
+    both = len(erbs_codes & site_codes)
+    erbs_only = len(erbs_codes - site_codes)
+    site_only = len(site_codes - erbs_codes)
+    n_erbs = len(charts)
+    n_sites = len(site_charts)
+    n_non_erbs = len(non_erbs)
+    n_non_sites = len(non_sites)
+    issue_last = n_erbs + n_sites
+    non_erbs_first = issue_last + 1
+    non_erbs_last = issue_last + n_non_erbs
+    non_site_first = non_erbs_last + 1
+    non_site_last = non_erbs_last + n_non_sites
+    non_site_names = ", ".join(item["site"] for item in non_sites) or "none"
+    vol_n = tag_counts["vol"]
+    lt5_n = tag_counts["lt5"]
+    lt5user_n = tag_counts["lt5user"]
+    mid_n = tag_counts["mid"]
+    low_n = tag_counts["low"]
+
+    sections: list[tuple[str, list[tuple[str, str]]]] = [
+        (
+            "Excel report — identity",
+            [
+                (
+                    "Files",
+                    f"Workbook FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx. "
+                    f"Chart page {CHART_PAGE}. The chart page is the two-tab page built for v28, "
+                    "copied and not rebuilt. The title inside the page still says Excel v28. "
+                    "This sheet states the rules for both.",
+                ),
+                (
+                    "Site Name",
+                    "ERBS, ERBS Id, and NodeId are the same kind of id. There is no separate ERBS id. "
+                    "EUtranCell Id and Cell Name are the same kind of id. "
+                    "Site Name = LEFT(ERBS, 7), LEFT(NodeId, 7), or LEFT(EUtranCell Id, 7). "
+                    "CGPTA90 and CGPTA90L are both site CGPTA90. "
+                    "LEFT of CGPTA90L09A, CGPTA90LL21A, CGPTA90L26A1, and CGPTA90LA is also CGPTA90.",
+                ),
+                (
+                    "Window and trace",
+                    f"Window {period_txt}, 72 hours. Source {source_name}. "
+                    "The trace is only Max DL Capacity Usage (Mbps). "
+                    "UL (ulBbCapacityNet and Max UL Capacity Usage) is never used. "
+                    "A name is scored when it has at least 24 hourly samples and Peak is at least 20 Mbit/s. "
+                    "A license of 0 or below, or a missing license row, is not license-scored. "
+                    "Busy-hour touch (08:00–22:00) and Where touched do not change the grade. "
+                    "Spelling Chocked is intentional.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — license",
+            [
+                (
+                    "ERBS license",
+                    "dlBbCapacityNet of that NodeId, in Mbps. ulBbCapacityNet is skipped.",
+                ),
+                (
+                    "Site license",
+                    "Sum of dlBbCapacityNet for every NodeId of the Site Name, one row per NodeId. "
+                    "CGPTA90 = 225 + 300 = 525 Mbps. "
+                    "CGLHG01 = 375 + 75 + 750 = 1200 Mbps (NodeIds CGLHG01L, CGLHG01_01, CGLHG01B03).",
+                ),
+                (
+                    "License usage",
+                    "An hour counts when Max DL / license is at least 85%. "
+                    "A name is listed when those hours are at least 20% of its hours. "
+                    "Severe: at least 50% of hours. High: 40% up to but not including 50%. "
+                    "Medium: 30% up to but not including 40%. Low: 20% up to but not including 30%. "
+                    "Under 20% is not listed.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — Peak, touch, and categories",
+            [
+                (
+                    "Peak and touch",
+                    "Peak is the highest hourly Max DL. Below5%Peak is Peak × 0.95. "
+                    "An hour touches when Max DL is at or above Below5%Peak. "
+                    "Touch ratio is touch hours divided by hours with data. "
+                    "The same floors apply to an ERBS and to a site.",
+                ),
+                (
+                    "Peak Touch",
+                    "Severe: touch ratio at least 40%. High: 30% up to but not including 40%. "
+                    "Medium: 20% up to but not including 30%. Low: 10% up to but not including 20%. "
+                    "Under 10% is not listed.",
+                ),
+                (
+                    "Tx Flat/Chocked",
+                    "A listed name whose Gap = (License − Peak) / License is at least 10%. "
+                    "Comment: Tx Issues Suspected. The gap severity replaces the Peak Touch severity. "
+                    "Severe: Gap at least 40%. High: 30% up to but not including 40%. "
+                    "Medium: 20% up to but not including 30%. Low: 15% up to but not including 20%. "
+                    "Decision: 10% up to but not including 15%.",
+                ),
+                (
+                    "Order",
+                    "Tx Flat/Chocked, then Peak Touch, then License usage. "
+                    "A name on both the peak list and the license list is drawn once. "
+                    "License-only names follow. Sort is category, then severity, then touch ratio descending, then name.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — two dashboards",
+            [
+                (
+                    "ERBS dashboard",
+                    "Stays on the full ERBS / NodeId. License is that NodeId's dlBbCapacityNet.",
+                ),
+                (
+                    "Site Level dashboard",
+                    "Written under the ERBS dashboard. Site-hour Max DL is the SUM of "
+                    "Max DL Capacity Usage for every ERBS of that Site Name, on that date and hour. "
+                    "On 11/Oct hour 0, site CGPTA90 is CGPTA90 plus CGPTA90L. "
+                    "Site license is the summed license. The three categories use the same floors.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — cells, Band, and TP Range",
+            [
+                (
+                    "Band token",
+                    "MID(EUtranCell Id, 8, 3). L09 when characters 8–10 start with L09. "
+                    "L21 and L26 keep those tokens. Every other cell, including LA, LB, and LC, is L18.",
+                ),
+                (
+                    "Which ERBS owns a cell",
+                    "L09 cells belong to the ERBS that equals the site code, when that ERBS exists. "
+                    "CGPTA90L09A, CGPTA90L09B, and CGPTA90L09C belong to CGPTA90 (3 cells). "
+                    "L18, L21, and L26 belong to the ERBS that is the site code plus L, when that ERBS exists. "
+                    "Those 12 cells belong to CGPTA90L. The site counts each cell once (15 for CGPTA90). "
+                    "An ERBS that is the only node keeps every cell. "
+                    "B01 and B02 cannot be read from the cell name, so cells of nodes that cannot be told apart are shared.",
+                ),
+                (
+                    "OSS KPI",
+                    "Throughput, PRB, volume, and users still drop L900. "
+                    "Data Volume, Max User, and Mean User are summed. "
+                    "DL Throughput is Num/Denom. DL PRB is (Num/Denom) × 100.",
+                ),
+                (
+                    "TP Range",
+                    "Eight bins after each OSS block: ≤3, 3–4, 4–5, 5–7, 7–8, 8–9, 9–10, ≥10. "
+                    "A cell is counted once. Its DL throughput is sum(Num) / sum(Denom) over the block's busy hours. "
+                    "≤3 includes 3 Mbps. ≥10 includes 10 Mbps. Middle bins do not overlap. "
+                    "L900 is excluded. An ERBS or site whose cells are only L09 has a blank TP Range. "
+                    "CGPTA90 is blank. CGPTA90L keeps the capacity counts "
+                    "(Data 4H: 0, 0, 0, 3, 6, 0, 1, 2). Site CGPTA90 counts those same 12 capacity cells.",
+                ),
+                (
+                    "Busy hours",
+                    "The site busy hour is the cell busy hour. "
+                    "1 BusyHour is the top hour on each of the 3 dates (3 hours). Data uses data volume. User uses max user. "
+                    "4 BusyHour is the top 4 hours on each date (12 hours).",
+                ),
+                (
+                    "Band columns",
+                    "No word cells. ERBS Band is after Site Type on 1. Site List_ERBS. Header navy #1F4E79. "
+                    "CGPTA90 is L09. CGPTA90L is L18+L21+L26. "
+                    "Band on 1. Site List_SiteLevel is every band at the site. Header cyan #00B0F0. "
+                    "Site CGPTA90 is L09+L18+L21+L26. Band still shows L09 when TP Range is blank.",
+                ),
+                (
+                    "Chart-sheet TP table",
+                    "On 2. HourlyChartOfIssueSites, Data 4H over Data 1H and User 4H over User 1H "
+                    "sit to the right of the OSS KPI table. Columns are Busy Hour, TP Range, Mbps, and Cell Count. "
+                    "An ERBS chart shows that ERBS's cells. A Site chart shows the site's capacity cells. "
+                    "The HTML chart page does not show TP Range or the 4H blocks.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — BH Flag 1H",
+            [
+                (
+                    "Four flags",
+                    "After Severity, on both lists. Yes when either Data 1H or User 1H matches. "
+                    "A missing pair is blank. The flag does not add or remove names. "
+                    "DL Throughput<7Mbps means ≤ 7 Mbps. Data Vol>50GB means ≥ 50 GB. "
+                    "DL Throughput<5Mbps means ≤ 5 Mbps. Data Vol>100GB means ≥ 100 GB. "
+                    "Immediate actions use stricter tests: throughput < 5, and volume > 100.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — sheets",
+            [
+                (
+                    "Workbook",
+                    "Dashboard has the ERBS section, then the Site Level section. "
+                    "1. Site List_ERBS and 1. Site List_SiteLevel. "
+                    "2. HourlyChartOfIssueSites. 3. Hourly KPI holds issue hours only, with Level ERBS or Site. "
+                    "This sheet is Method. 5. GeoPlot. URGENTBWINC_BusyHour. 7. Immediate actions. "
+                    "Sheet 6. Missing FEG Port is not written. "
+                    "Comparison stays off until a previous-window FEG file is provided. "
+                    "The dashboard note counts OSS sites with no ERBS in the FEG file and does not name sheet 6.",
+                ),
+                (
+                    "List columns",
+                    "No., name, Tech, Site Type, Band, Category, Severity, four BH Flag 1H columns, "
+                    "Peak, Below5%Peak, touch hours, total hours, peak ratio, where touched, license, gap, "
+                    "then the four OSS blocks, each followed by the eight TP Range bins. "
+                    "Tech and Site Type come from the physical database. "
+                    "A code with no row is Tech 4G and Site Type Not found. The name links to its chart.",
+                ),
+                (
+                    "Excel charts",
+                    "Five lines: Max DL Capacity Usage, Peak, Below5%Peak, the license, and 85% of the license. "
+                    "The row above the plot is the tag. Issue tags are ERBS (navy) or Site (orange). "
+                    f"This file: issue ERBS charts 1–{n_erbs}, issue site charts {n_erbs + 1}–{issue_last}, "
+                    f"non-issue ERBS charts {non_erbs_first}–{non_erbs_last}, "
+                    f"non-issue site charts {non_site_first}–{non_site_last}.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — GeoPlot",
+            [
+                (
+                    "One dot per site",
+                    "The physical site is LEFT(ERBS, 7). It is an issue when any of its ERBS is on the ERBS dashboard, "
+                    "or the site itself is on the Site Level dashboard. Several ERBS become one dot. "
+                    "The grade is the worst display severity: Severe, High, Medium, Low, Decision. "
+                    "Medium is drawn as Moderate. Decision stays Decision. "
+                    "A site whose every finding is License usage keeps the license grade. "
+                    "A physical-database site that is not an issue is drawn as Non-issue. "
+                    "A code with no latitude and longitude is not drawn. "
+                    "The 10 comparison sites are not added to the issue set.",
+                ),
+                (
+                    "This window",
+                    f"{len(geo_records)} issue sites = {both} on both dashboards + "
+                    f"{erbs_only} ERBS-only + {site_only} SiteLevel-only. "
+                    f"{license_only_sites} of those sites are listed only by the license rule.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — Immediate actions",
+            [
+                (
+                    "Population",
+                    "Sheet 7. Immediate actions. 1. Site List_SiteLevel only. "
+                    "Data 1H or User 1H only. 4 BusyHour is not used. "
+                    "Either 1H block can match. A site is listed once, on the first row it matches. "
+                    "The 10 comparison sites are not included.",
+                ),
+                (
+                    "1. Volume",
+                    f"High Priority: Data Volume > 100 GB, and Severity is Severe or High. {vol_n} sites. "
+                    "Exactly 100 GB does not match.",
+                ),
+                (
+                    "2. Throughput under 5",
+                    f"High Priority: DL throughput < 5 Mbps, and Severity is Severe or High. {lt5_n} sites. "
+                    "A Severe or High site that also has Max User at least 500 stays on this row.",
+                ),
+                (
+                    "3. Throughput under 5 and Max User",
+                    f"High Priority: DL throughput < 5 Mbps and Max User ≥ 500 on the same 1H block, "
+                    f"and Severity is Severe, High, or Low. {lt5user_n} sites. "
+                    "These are Low in practice, because Severe and High already matched row 2. "
+                    "Max User on the other block does not count.",
+                ),
+                (
+                    "4. Mid",
+                    f"Mid Priority: DL throughput from 5 Mbps up to but not including 8 Mbps, "
+                    f"and Severity is Severe or High. {mid_n} sites. Exactly 5 Mbps is mid.",
+                ),
+                (
+                    "5. Low",
+                    f"Low Priority: DL throughput from 8 Mbps through 10 Mbps, "
+                    f"and Severity is Severe or High. {low_n} sites. Exactly 8 Mbps and exactly 10 Mbps are low. "
+                    f"Total {len(immediate)} sites. Medium and Decision are never listed. "
+                    "Throughput above 10 Mbps, with volume at or under 100 GB, is not listed.",
+                ),
+            ],
+        ),
+        (
+            "Excel report — non-issue comparison",
+            [
+                (
+                    "Why these rows exist",
+                    "So an issue chart and a non-issue chart can be compared. Nothing else. "
+                    "Ten physical sites, in the physical database, on neither dashboard. "
+                    "Every ERBS and the site have at least 24 samples, Peak at least 20, a positive license, "
+                    "touch ratio under 5%, and license-hour share under 5%, with 1 to 3 ERBS. "
+                    "Only if fewer than 10 sites are found, relax to at most 6 ERBS and under 10%.",
+                ),
+                (
+                    "Where they are written",
+                    f"Sites: {non_site_names}. {n_non_erbs} ERBS. "
+                    "Green header #00B050, outside the autofilter. "
+                    "1. Site List_ERBS ends with Non Issues ERBS. "
+                    "1. Site List_SiteLevel ends with Non Issues Sites. "
+                    "Category is Non Issue. Severity is —. "
+                    "Charts follow the issue charts and are tagged Non Issue · ERBS or Non Issue · Site. "
+                    "They are not on the Dashboard, the GeoPlot issue set, 3. Hourly KPI, "
+                    "the BusyHour link list, Immediate actions, or the HTML chart page.",
+                ),
+            ],
+        ),
+        (
+            "Chart page",
+            [
+                (
+                    "File",
+                    f"{CHART_PAGE}. Open the zip, then the HTML file. "
+                    "A raw GitHub HTML link shows source text. "
+                    "The page was built for Excel v28 and renamed. It was not rebuilt for v29, v30, or this workbook. "
+                    "The title inside the page still says Excel v28.",
+                ),
+                (
+                    "Two tabs",
+                    "ERBS, navy #1F4E79, opens the issue ERBS list and charts. "
+                    "SiteLevel, teal #0E7490, opens the issue site list and charts. "
+                    "The active tab has a white inset bottom bar. Hash is #ERBS/name or #SiteLevel/name.",
+                ),
+                (
+                    "Same rules on both tabs",
+                    "Filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. "
+                    "Five lines: Max DL Capacity Usage, Peak, Below5%Peak, the license, and 85% of the license. "
+                    "OSS panels are Data 1H (purple) and User 1H (navy) only. No 4H. No TP Range. L900 stays dropped. "
+                    "The band chip says ERBS Band or Band.",
+                ),
+                (
+                    "All Sites",
+                    "ERBS All Sites is every FEG ERBS, including names that are not issues. License is that NodeId's license. "
+                    "SiteLevel All Sites sums Max DL by Site Name. License is the summed site license. "
+                    "Built counts on the page: ERBS 752 listed and 11,126 All Sites. "
+                    "SiteLevel 609 listed and 6,486 All Sites.",
+                ),
+                (
+                    "Checks that stay true",
+                    "ERBS CGPTA90: band L09, license 225. "
+                    "ERBS CGPTA90L: band L18+L21+L26, license 300. "
+                    "Site CGPTA90: band L09+L18+L21+L26, license 525. "
+                    "The site hour is the sum of the two ERBS hours. "
+                    "Site CGLHG01, when present, license 1200. "
+                    "The 10 non-issue comparison sites are not on this page.",
+                ),
+            ],
+        ),
+    ]
+
+    ws = book.add_worksheet(METHOD_SHEET)
+    _page(ws, "Method — Excel report and Chart page")
+    ws.set_tab_color(fcc.GREY)
+    ws.set_column(0, 0, 36)
+    ws.set_column(1, 1, 118)
+    ws.set_row(0, 28)
+    ws.merge_range(0, 0, 0, 1, "Method — Excel report and Chart page", styles["title"])
+    ws.set_row(1, 18)
+    ws.merge_range(
+        1, 0, 1, 1,
+        f"{source_name}    ·    {period_txt}    ·    {REPORT_VERSION}    ·    "
+        f"{n_erbs} issue ERBS    ·    {n_sites} issue sites",
+        styles["subtitle"],
+    )
+    ws.set_row(2, 32)
+    ws.merge_range(
+        2, 0, 2, 1,
+        "These rows are the rules used to build this workbook and the chart page. "
+        "The chart page is the HTML file. It has no sheets of its own. Its rules are in the Chart page section.",
+        styles["note"],
+    )
+    ws.set_row(3, 20)
+    ws.write(3, 0, "Rule", styles["method_head"])
+    ws.write(3, 1, "How it is applied", styles["method_head"])
+    ws.freeze_panes(4, 0)
+
+    row = 4
+    for title, rules in sections:
+        ws.set_row(row, 22)
+        ws.merge_range(row, 0, row, 1, title, styles["section"])
+        row += 1
+        for key, val in rules:
+            ws.set_row(row, _rule_height(val))
+            ws.write(row, 0, key, styles["method_key"])
+            ws.write(row, 1, val, styles["method_val"])
+            row += 1
+    _place_sheet_after(book, METHOD_SHEET, "3. Hourly KPI")
+    print(f"Method sheet: {row - 4} rule rows", flush=True)
+
+
 def write_workbook(
     path: Path,
     source_name: str,
@@ -3651,6 +4081,18 @@ def write_workbook(
     fcc._write_busy_hour_plan(book, styles, period_txt, link_records, busy_rows)
     write_site_immediate_actions(
         book, styles, period_txt, site_charts, busy_by_code, site_chart_index,
+    )
+    write_method(
+        book, styles,
+        source_name=source_name,
+        period_txt=period_txt,
+        charts=charts,
+        site_charts=site_charts,
+        non_erbs=non_erbs,
+        non_sites=non_sites,
+        geo_records=geo_records,
+        license_only_sites=license_only_sites,
+        busy_by_code=busy_by_code,
     )
     book.close()
     for jpeg in path.parent.glob(path.stem + "_GeoPlot_*.jpg"):

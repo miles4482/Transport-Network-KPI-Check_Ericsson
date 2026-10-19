@@ -1,13 +1,13 @@
 ---
-description: FEGE choke rules for the Ericsson report. Current report is v30.
+description: FEGE choke rules for the Ericsson report. Current report is v31.
 alwaysApply: true
 ---
 
-Follow `RULES.md` in the repo root. The operative set is the section **Current Ericsson report — v30**. Later sections are history. Where they disagree, v30 wins.
+Follow `RULES.md` in the repo root. The operative set is the section **Current Ericsson report — v31**. Later sections are history. Where they disagree, v31 wins. The workbook sheet `Method` carries the same Excel and chart-page rules.
 
-This repo is the Ericsson report. The published files are `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx` and `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html`.
+This repo is the Ericsson report. The published files are `FEGE_Choked_Flat_Sites_Ericsson_v31.xlsx` and `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html`. The same rules are written on the workbook sheet `Method`.
 
-v30 in short:
+v31 in short:
 
 - Peak-touch on `Max DL Capacity Usage (Mbps)` only. UL is never used. Window 11–13 Oct 2026. Guards: at least 24 samples and Peak at least 20 Mbit/s.
 - Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, or `LEFT(EUtranCell Id, 7)`. `ERBS Id` means `ERBS`.

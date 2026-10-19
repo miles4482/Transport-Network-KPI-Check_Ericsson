@@ -1,12 +1,16 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v30.** The section [Current Ericsson report — v30](#current-ericsson-report--v30) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v30 was built from. Where they disagree, v30 wins.
+**Current report is v31.** The section [Current Ericsson report — v31](#current-ericsson-report--v31) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v31 was built from. Where they disagree, v31 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v30.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v30_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v31.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v31_Charts.html`.
 
-## Current Ericsson report — v30
+## Current Ericsson report — v31
 
-The chart file name is v30. The page inside it is the two-tab page built for v28, copied and not rebuilt for v29 and v30. The title inside the page still says Excel v28. Do not rebuild the HTML unless asked. A later Excel version is a rename of that file only.
+The detection, listing, dashboard, GeoPlot, Immediate actions, and chart-page rules are the v30 rules. v31 writes those rules on a new sheet named **Method**, for the Excel report and for the chart page. The chart file name is v31. The page inside it is the two-tab page built for v28, copied and not rebuilt. The title inside the page still says Excel v28. Do not rebuild the HTML unless asked.
+
+### Sheet Method
+
+Sheet name is `Method`. It sits after `3. Hourly KPI`. Two columns: Rule, and How it is applied. Sections cover Site Name, the window, license, Peak Touch, Tx Flat/Chocked, the two dashboards, cell ownership, Band, TP Range, BH Flag 1H, the other sheets, GeoPlot, Immediate actions, the 10 non-issue comparison sites, and the chart page. The chart page has no sheets of its own. Its rules are the Chart page section of `Method`.
 
 Runner: `scripts/fege_peak_touch_ericsson.py`. Spelling **Chocked** is intentional. UL is never used. `ERBS Id` means `ERBS`. There is no separate ERBS id.
 
