@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-REPORT_VERSION = "v33"
+REPORT_VERSION = "v34"
 OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
 METHOD_SHEET = "Method"
@@ -3241,11 +3241,13 @@ ACTION_BLOCKS = (
     ("User 1H", "tp_user_1h", "vol_user_1h", "users_user_1h", "prb_user_1h"),
 )
 ACTION_TAGS = (
-    ("vol100", "1. Chocked & Volume >100 GB & Throughput <5 Mbps"),
-    ("vol50", "2. Chocked & Volume >50 GB & Throughput <7 Mbps"),
-    ("tp7", "3. Chocked & Throughput <7 Mbps"),
-    ("tp10", "4. Chocked & Throughput <10 Mbps"),
-    ("userprb", "5. Chocked & Max User >300 & PRB >75%"),
+    ("vol100_tp5", "1. Volume >100 GB & Throughput <5 Mbps"),
+    ("vol100_tp7", "2. Volume >100 GB & Throughput <7 Mbps"),
+    ("tp5_user_prb", "3. Throughput <5 Mbps & Max User >300 & PRB >75%"),
+    ("vol50_tp5", "4. Volume >50 GB & Throughput <5 Mbps"),
+    ("vol50_tp7", "5. Volume >50 GB & Throughput <7 Mbps"),
+    ("tp7", "6. Throughput <7 Mbps"),
+    ("tp10", "7. Throughput <10 Mbps"),
 )
 ACTION_KPI = (
     ("tp_data_4h", "DL Throughput Data 4h (Mbps)"),
@@ -3275,20 +3277,25 @@ def _action_why(busy: dict, key: str) -> str:
         vol = _finite(busy.get(vol_key))
         users = _finite(busy.get(user_key))
         prb = _finite(busy.get(prb_key))
-        if key == "vol100" and np.isfinite(vol) and vol > 100 and np.isfinite(tp) and tp < 5:
+        if key == "vol100_tp5" and np.isfinite(vol) and vol > 100 and np.isfinite(tp) and tp < 5:
             hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
-        elif key == "vol50" and np.isfinite(vol) and vol > 50 and np.isfinite(tp) and tp < 7:
+        elif key == "vol100_tp7" and np.isfinite(vol) and vol > 100 and np.isfinite(tp) and tp < 7:
+            hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
+        elif (
+            key == "tp5_user_prb"
+            and np.isfinite(tp) and tp < 5
+            and np.isfinite(users) and users > 300
+            and np.isfinite(prb) and prb > 75
+        ):
+            hits.append(f"{label} {tp:.2f} Mbps, Max User {users:.0f}, PRB {prb:.1f}%")
+        elif key == "vol50_tp5" and np.isfinite(vol) and vol > 50 and np.isfinite(tp) and tp < 5:
+            hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
+        elif key == "vol50_tp7" and np.isfinite(vol) and vol > 50 and np.isfinite(tp) and tp < 7:
             hits.append(f"{label} {vol:.2f} GB, {tp:.2f} Mbps")
         elif key == "tp7" and np.isfinite(tp) and tp < 7:
             hits.append(f"{label} {tp:.2f} Mbps")
         elif key == "tp10" and np.isfinite(tp) and tp < 10:
             hits.append(f"{label} {tp:.2f} Mbps")
-        elif (
-            key == "userprb"
-            and np.isfinite(users) and users > 300
-            and np.isfinite(prb) and prb > 75
-        ):
-            hits.append(f"{label} Max User {users:.0f}, PRB {prb:.1f}%")
     return "; ".join(hits)
 
 
@@ -3423,7 +3430,7 @@ def write_action_plan(
     last_col = 7 + len(ACTION_KPI)
     ws.set_row(0, 28)
     ws.merge_range(0, 0, 0, last_col, "Action plan — Tx Flat/Chocked", styles["title"])
-    ws.set_row(1, 96)
+    ws.set_row(1, 120)
     ws.merge_range(
         1, 0, 1, last_col,
         f"{period_txt}. Issue sites from {SITE_LIST_SITE_SHEET} and {SITE_LIST_SHEET}. "
@@ -3432,9 +3439,14 @@ def write_action_plan(
         "A block is Data 4H, User 4H, Data 1H, or User 1H. "
         "The rule matches when any one of those blocks meets every number in the rule. "
         "Volume and throughput, or Max User and PRB, are read on that same block. "
-        "A name is listed once, under the first rule it matches, and is not counted again. "
-        "Volume > 100 GB and volume > 50 GB are strict. Throughput < 5, < 7, and < 10 Mbps are strict. "
-        "Max User > 300 and PRB > 75% are strict. "
+        "A name is listed once, under the first order it matches, and is not tagged on any later order. "
+        "Order 1 is volume > 100 GB and throughput < 5 Mbps. "
+        "Order 2 is volume > 100 GB and throughput < 7 Mbps. "
+        "Order 3 is throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
+        "Order 4 is volume > 50 GB and throughput < 5 Mbps. "
+        "Order 5 is volume > 50 GB and throughput < 7 Mbps. "
+        "Order 6 is throughput < 7 Mbps. Order 7 is throughput < 10 Mbps. "
+        "Every comparison is strict. "
         "OSS values are the physical-site busy hours, L900 dropped.",
         styles["note"],
     )
@@ -4098,11 +4110,13 @@ def write_method(
                 (
                     "Order",
                     "1. Volume > 100 GB and DL throughput < 5 Mbps. "
-                    "2. Volume > 50 GB and DL throughput < 7 Mbps. "
-                    "3. DL throughput < 7 Mbps. "
-                    "4. DL throughput < 10 Mbps. "
-                    "5. Max User > 300 and PRB > 75%. "
-                    "Each test is strict. A name that matches rule 1 is not repeated on a later rule.",
+                    "2. Volume > 100 GB and DL throughput < 7 Mbps. "
+                    "3. DL throughput < 5 Mbps and Max User > 300 and PRB > 75%. "
+                    "4. Volume > 50 GB and DL throughput < 5 Mbps. "
+                    "5. Volume > 50 GB and DL throughput < 7 Mbps. "
+                    "6. DL throughput < 7 Mbps. "
+                    "7. DL throughput < 10 Mbps. "
+                    "Each test is strict. A name tagged on one order is not tagged on another order.",
                 ),
             ],
         ),
