@@ -1,12 +1,12 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v36.** The section [Current Ericsson report — v36](#current-ericsson-report--v36) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v36 was built from. Where they disagree, v36 wins.
+**Current report is v37.** The section [Current Ericsson report — v37](#current-ericsson-report--v37) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v37 was built from. Where they disagree, v37 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v36.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v36_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v37.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v37_Charts.html`.
 
-## Current Ericsson report — v36
+## Current Ericsson report — v37
 
-v36 uses the same rules as v35 and scores the replaced source files. Window **30 Oct 2026 – 1 Nov 2026**. The 11–13 Oct OSS parts are no longer in the repo. Sheet **ActionPlan** stays eight orders. The rows are Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User. This window: 115, 42, 16, 34, 76, 170, 7, 341, total **801**.
+v37 uses the same rules as v36 and scores the updated `DL_License_File.xlsb`. Window **30 Oct 2026 – 1 Nov 2026**. The license file has `Site`, `NodeId`, `ENodeBFunctionId`, and `dlBbCapacityNet` (11,298 nodes). `ulBbCapacityNet` is not in this file. Sheet **ActionPlan** stays eight orders. The rows are Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User. This window: 122, 42, 16, 31, 78, 172, 7, 347, total **815**.
 
 1. Volume > 100 GB and DL throughput < 5 Mbps
 2. Volume > 100 GB and DL throughput < 7 Mbps
@@ -17,7 +17,7 @@ v36 uses the same rules as v35 and scores the replaced source files. Window **30
 7. DL throughput < 7 Mbps and Max User > 500
 8. DL throughput < 10 Mbps
 
-Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is rebuilt for this workbook. Its title says Excel v36.
+Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is rebuilt for this workbook. Its title says Excel v37.
 
 ### Sheet Method
 
@@ -33,7 +33,7 @@ Site Name = `LEFT(ERBS, 7)`, `LEFT(NodeId, 7)`, or `LEFT(EUtranCell Id, 7)`. `CG
 
 ### Window, trace, and guards
 
-Window **30 Oct 2026 – 1 Nov 2026**, 72 hours. Trace is only `Max DL Capacity Usage (Mbps)`. Score a name only when it has at least 24 hourly samples and Peak is at least 20 Mbit/s. A license of 0 or below, or a missing license row, is not license-scored. Busy-hour touch (08:00–22:00) and Where touched do not change the grade. This window: 11,341 ERBS checked, 11,264 scored, 6,552 sites. License matched 11,041 ERBS and 6,401 sites.
+Window **30 Oct 2026 – 1 Nov 2026**, 72 hours. Trace is only `Max DL Capacity Usage (Mbps)`. Score a name only when it has at least 24 hourly samples and Peak is at least 20 Mbit/s. A license of 0 or below, or a missing license row, is not license-scored. Busy-hour touch (08:00–22:00) and Where touched do not change the grade. This window: 11,341 ERBS checked, 11,264 scored, 6,552 sites. License matched 11,274 ERBS (308 listed) and 6,505 sites (79 listed).
 
 ### License
 
@@ -86,31 +86,31 @@ Dashboard (Site Level, then ERBS). `1. Site List_SiteLevel`. `1. Site List_ERBS`
 
 ### GeoPlot
 
-One dot per physical site. The site is an issue when any ERBS is on the ERBS dashboard or the site is on the Site Level dashboard. Grade is the worst display severity. Medium is drawn as Moderate. Decision stays Decision. A license-only site keeps its license grade. It is not forced to Low. A physical site that is not an issue is drawn as Non-issue. A code with no latitude and longitude is not drawn. This window: 1,074 issue sites = 534 on both dashboards + 331 ERBS-only + 209 SiteLevel-only. 175 of those sites are listed only by the license rule. The 10 comparison sites are not added.
+One dot per physical site. The site is an issue when any ERBS is on the ERBS dashboard or the site is on the Site Level dashboard. Grade is the worst display severity. Medium is drawn as Moderate. Decision stays Decision. A license-only site keeps its license grade. It is not forced to Low. A physical site that is not an issue is drawn as Non-issue. A code with no latitude and longitude is not drawn. This window: 1,043 issue sites = 530 on both dashboards + 340 ERBS-only + 173 SiteLevel-only. 144 of those sites are listed only by the license rule. The 10 comparison sites are not added.
 
 ### Immediate actions
 
 `1. Site List_SiteLevel` only. Data 1H or User 1H only. First match wins:
 
-1. Data Volume > 100 GB, Severe or High. 114. Exactly 100 GB does not match.
-2. DL throughput < 5 Mbps, Severe or High. 73. A Severe or High site that also has Max User ≥ 500 stays here.
-3. DL throughput < 5 Mbps and Max User ≥ 500 on the same 1H block, Severe, High, or Low. 12. These are Low in practice.
-4. DL throughput from 5 Mbps up to but not including 8 Mbps, Severe or High. 142. Exactly 5 is mid.
-5. DL throughput from 8 Mbps through 10 Mbps, Severe or High. 83. Exactly 8 and exactly 10 are low.
+1. Data Volume > 100 GB, Severe or High. 110. Exactly 100 GB does not match.
+2. DL throughput < 5 Mbps, Severe or High. 67. A Severe or High site that also has Max User ≥ 500 stays here.
+3. DL throughput < 5 Mbps and Max User ≥ 500 on the same 1H block, Severe, High, or Low. 7. These are Low in practice.
+4. DL throughput from 5 Mbps up to but not including 8 Mbps, Severe or High. 134. Exactly 5 is mid.
+5. DL throughput from 8 Mbps through 10 Mbps, Severe or High. 84. Exactly 8 and exactly 10 are low.
 
-Total 424. Medium and Decision are never listed. Throughput above 10 Mbps with volume at or under 100 GB is not listed.
+Total 402. Medium and Decision are never listed. Throughput above 10 Mbps with volume at or under 100 GB is not listed.
 
 ### Non-issue comparison (Excel only)
 
 Up to 10 physical sites that are on neither dashboard, so an issue chart and a non-issue chart can be compared. Each site has exactly one ERBS. A site with two ERBS ids is not used. Peak of Max DL Capacity Usage is above 15 Mbps for that ERBS and for the site. Every name has at least 24 samples, Peak at least 20, a positive license, touch ratio under 5%, and license-hour share under 5%. Only if fewer than 10 are found, relax touch and license share to under 10%. The one-ERBS rule and the 15 Mbps floor stay.
 
-This window: `BBAKD04`, `BBAKD11`, `BBLMA12`, `BBLMA16`, `BBLMA17`, `BBLMA19`, `BBNKC19`, `BBNKC32`, `BBRMA03`, `BBRMA07`. Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are 1–743, issue ERBS charts are 744–1614, non-issue site charts are 1615–1624, and non-issue ERBS charts are 1625–1634. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
+This window: `BBAKD04`, `BBAKD11`, `BBLMA10`, `BBLMA12`, `BBLMA16`, `BBLMA17`, `BBLMA19`, `BBNKC19`, `BBNKC32`, `BBRMA03`. Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are 1–703, issue ERBS charts are 704–1579, non-issue site charts are 1580–1589, and non-issue ERBS charts are 1590–1599. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
 
 ### Chart page
 
 Two tabs. **ERBS** (navy `#1F4E79`) and **SiteLevel** (teal `#0E7490`). Same filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. Same five lines: Max DL, Peak, Below5%Peak, license, 85% of license. OSS panels are Data 1H and User 1H only. Hash `#ERBS/name` or `#SiteLevel/name`.
 
-ERBS All Sites is every FEG ERBS, license per NodeId. SiteLevel All Sites sums Max DL by Site Name and sums the license. This window lists 871 issue ERBS and 743 issue sites. ERBS peak-ratio list is 717: Tx Flat/Chocked 548 (Severe 398, High 50, Medium 47, Low 27, Decision 26) and Peak Touch 169 (Severe 13, High 7, Medium 22, Low 127). License usage lists 286 ERBS and 124 sites. ERBS `CGPTA90` is band `L09` and license 225, with a blank TP Range. `CGPTA90L` is `L18+L21+L26` and license 300. Site `CGPTA90` is `L09+L18+L21+L26` and license 525. Site `CGLHG01` license is 1200.
+ERBS All Sites is every FEG ERBS, license per NodeId. SiteLevel All Sites sums Max DL by Site Name and sums the license. This window lists 876 issue ERBS and 703 issue sites. ERBS peak-ratio list is 717: Tx Flat/Chocked 555 (Severe 405, High 52, Medium 45, Low 27, Decision 26) and Peak Touch 162 (Severe 15, High 8, Medium 21, Low 118). License usage lists 308 ERBS and 79 sites. Site-level Tx Flat/Chocked is 614. ERBS `CGPTA90` is band `L09` and license 225, with a blank TP Range. `CGPTA90L` is `L18+L21+L26` and license 300. Site `CGPTA90` is `L09+L18+L21+L26` and license 525. Site `CGLHG01` license is 1200.
 
 ---
 
