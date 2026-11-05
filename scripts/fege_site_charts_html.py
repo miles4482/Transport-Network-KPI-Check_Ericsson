@@ -16,8 +16,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "37"
-EXCEL_VERSION = "v37"
+HTML_VERSION = "38"
+EXCEL_VERSION = "v38"
 # Band sits after Site Type, so every later Site List column is one place to the right of v22.
 COL_N = 0
 COL_NAME = 1

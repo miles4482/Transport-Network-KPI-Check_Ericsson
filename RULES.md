@@ -1,12 +1,14 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v37.** The section [Current Ericsson report — v37](#current-ericsson-report--v37) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v37 was built from. Where they disagree, v37 wins.
+**Current report is v38.** The section [Current Ericsson report — v38](#current-ericsson-report--v38) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v38 was built from. Where they disagree, v38 wins.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v37.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v37_Charts.html`.
+Each later update of this report uses the next version name. The workbook, the chart page, the GeoPlot file, and the title inside them move together. A later change is not published under the previous version name.
 
-## Current Ericsson report — v37
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v38.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v38_Charts.html`.
 
-v37 uses the same rules as v36 and scores the updated `DL_License_File.xlsb`. Window **30 Oct 2026 – 1 Nov 2026**. The license file has `Site`, `NodeId`, `ENodeBFunctionId`, and `dlBbCapacityNet` (11,298 nodes). `ulBbCapacityNet` is not in this file. Sheet **ActionPlan** stays eight orders. The rows are Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User. This window: 122, 42, 16, 31, 78, 172, 7, 347, total **815**.
+## Current Ericsson report — v38
+
+v38 uses the same rules as v37 and scores the updated `DL_License_File.xlsb`. Window **30 Oct 2026 – 1 Nov 2026**. The license file has `Site`, `NodeId`, `ENodeBFunctionId`, and `dlBbCapacityNet` (11,298 nodes). `ulBbCapacityNet` is not in this file. Sheet **ActionPlan** stays eight orders. The rows are Tx Flat/Chocked issue names from `1. Site List_SiteLevel` and `1. Site List_ERBS`. A name is tagged on one order only. A later order does not tag it again. A rule matches when any one of Data 4H, User 4H, Data 1H, or User 1H meets every number in that rule, on that same block. User means Max User. This window: 122, 42, 16, 31, 78, 172, 7, 347, total **815**.
 
 1. Volume > 100 GB and DL throughput < 5 Mbps
 2. Volume > 100 GB and DL throughput < 7 Mbps
@@ -17,7 +19,7 @@ v37 uses the same rules as v36 and scores the updated `DL_License_File.xlsb`. Wi
 7. DL throughput < 7 Mbps and Max User > 500
 8. DL throughput < 10 Mbps
 
-Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is rebuilt for this workbook. Its title says Excel v37.
+Site Level Dashboard stays on top of the Dashboard sheet, and ERBS Dashboard stays below it. No. starts at 1 on the Site Level charts. The 10 non-issue comparison sites each have exactly one ERBS, and Peak of Max DL is above 15 Mbps. Sheet `Method` holds these rules. The chart page is rebuilt for this workbook. Its title says Excel v38.
 
 ### Sheet Method
 
@@ -108,7 +110,7 @@ This window: `BBAKD04`, `BBAKD11`, `BBLMA10`, `BBLMA12`, `BBLMA16`, `BBLMA17`, `
 
 ### HUP_usage
 
-Sheet `HUP_usage` is ERBS only. It was added on the v37 workbook. The other sheets stay as they are. Each row uses that ERBS `dlBbCapacityNet`, not the site sum. An hour counts when Max DL is at or above 85% of that license. The serial is that share, highest first. Throughput is not used for the serial. Data 1H and User 1H DL throughput stay on every row. Those values are the physical-site 1 BusyHour numbers on `1. Site List_ERBS`, with L900 dropped. Under 7 is strict and is only a marker. A missing 1H value is not under 7. 4H is not used. ERBS under 20% are not listed. The 10 non-issue comparison ERBS are not listed. The ERBS name is a link to that ERBS chart on `2. HourlyChartOfIssueSites`. The sheet is laid out like ActionPlan: orange usage block with a count, navy column header, zebra data rows, and the same severity colours. Each data row shows its usage band, coloured peach at 40% and above, yellow from 30% to under 40%, and green from 20% to under 30%. A green cell marks 1H throughput under 7.
+Sheet `HUP_usage` is ERBS only. It is on this v38 workbook. The other sheets stay as they are. Each row uses that ERBS `dlBbCapacityNet`, not the site sum. An hour counts when Max DL is at or above 85% of that license. The serial is that share, highest first. Throughput is not used for the serial. Data 1H and User 1H DL throughput stay on every row. Those values are the physical-site 1 BusyHour numbers on `1. Site List_ERBS`, with L900 dropped. Under 7 is strict and is only a marker. A missing 1H value is not under 7. 4H is not used. ERBS under 20% are not listed. The 10 non-issue comparison ERBS are not listed. The ERBS name is a link to that ERBS chart on `2. HourlyChartOfIssueSites`. The sheet is laid out like ActionPlan: orange usage block with a count, navy column header, zebra data rows, and the same severity colours. Each data row shows its usage band, coloured peach at 40% and above, yellow from 30% to under 40%, and green from 20% to under 30%. A green cell marks 1H throughput under 7.
 
 ### Chart page
 

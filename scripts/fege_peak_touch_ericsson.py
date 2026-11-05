@@ -48,7 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fege_choke_check as fcc  # noqa: E402
 import fege_choke_check_ericsson as eric  # noqa: E402
 
-REPORT_VERSION = "v37"
+REPORT_VERSION = "v38"
 OUTPUT_DEFAULT = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHART_PAGE = f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
 METHOD_SHEET = "Method"
