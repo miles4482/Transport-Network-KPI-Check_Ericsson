@@ -704,7 +704,8 @@ function rowTitle(site) {
 function rowMeta(site) {
   const band = site.band ? " · " + site.band : "";
   if (filter === "HUP usage" && site.hupNo) {
-    return "HUP order " + site.hupOrder + " · " + primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band;
+    const hupBand = {1: "at least 40% of hours", 2: "30% to under 40% of hours", 3: "20% to under 30% of hours"};
+    return (hupBand[site.hupOrder] || "HUP") + " · " + primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band;
   }
   if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "") + band;
   return primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band + " · " + site.tech + " · " + site.siteType;
@@ -1044,19 +1045,46 @@ def attach_hup(view: dict, path: Path) -> None:
     if "HUP_usage" not in book.sheetnames:
         book.close()
         raise SystemExit(f"{path.name} has no HUP_usage sheet")
+    ws = book["HUP_usage"]
+    header_row = None
+    col_no = col_erbs = col_usage = None
+    for index, row in enumerate(ws.iter_rows(max_row=20, max_col=12, values_only=True), start=1):
+        labels = ["" if cell is None else str(cell).strip() for cell in row]
+        if "No." in labels and "ERBS" in labels and "Usage" in labels:
+            header_row = index
+            col_no = labels.index("No.")
+            col_erbs = labels.index("ERBS")
+            col_usage = labels.index("Usage")
+            break
+    if header_row is None:
+        book.close()
+        raise SystemExit(f"{path.name} HUP_usage has no header row")
+    band_no = {
+        "At least 40% of hours": 1,
+        "30% to under 40% of hours": 2,
+        "20% to under 30% of hours": 3,
+    }
     by_name = {item["site"]: item for item in view["tabs"]["ERBS"]["sites"]}
+    for item in by_name.values():
+        item.pop("hupNo", None)
+        item.pop("hupOrder", None)
     marked = 0
     missing = []
-    for row in book["HUP_usage"].iter_rows(min_row=14, max_col=4, values_only=True):
-        serial, order, _rule, name = row
+    width = max(col_no, col_erbs, col_usage) + 1
+    for row in ws.iter_rows(min_row=header_row + 1, max_col=width, values_only=True):
+        serial, name, usage = row[col_no], row[col_erbs], row[col_usage]
         if not isinstance(serial, (int, float)) or not name:
             continue
         item = by_name.get(str(name).strip())
         if item is None:
             missing.append(str(name))
             continue
+        band = band_no.get(str(usage).strip())
+        if band is None:
+            book.close()
+            raise SystemExit(f"HUP usage band not recognised for {name}: {usage}")
         item["hupNo"] = int(serial)
-        item["hupOrder"] = int(order)
+        item["hupOrder"] = band
         marked += 1
     book.close()
     if missing:
