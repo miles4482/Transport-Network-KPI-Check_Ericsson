@@ -112,7 +112,7 @@ Sheet `HUP_usage` is ERBS only. It was added on the v37 workbook. The other shee
 
 ### Chart page
 
-Two tabs. **ERBS** (navy `#1F4E79`) and **SiteLevel** (teal `#0E7490`). Same filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. Same five lines: Max DL, Peak, Below5%Peak, license, 85% of license. OSS panels are Data 1H and User 1H only. Hash `#ERBS/name` or `#SiteLevel/name`.
+Two tabs. **ERBS** (navy `#1F4E79`) and **SiteLevel** (teal `#0E7490`). Same filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. The ERBS tab also has **HUP usage**, the 308 ERBS from sheet `HUP_usage`, in that sheet's order. Same five lines: Max DL, Peak, Below5%Peak, license, 85% of license. OSS panels are Data 1H and User 1H only. Hash `#ERBS/name` or `#SiteLevel/name`.
 
 ERBS All Sites is every FEG ERBS, license per NodeId. SiteLevel All Sites sums Max DL by Site Name and sums the license. This window lists 876 issue ERBS and 703 issue sites. ERBS peak-ratio list is 717: Tx Flat/Chocked 555 (Severe 405, High 52, Medium 45, Low 27, Decision 26) and Peak Touch 162 (Severe 15, High 8, Medium 21, Low 118). License usage lists 308 ERBS and 79 sites. Site-level Tx Flat/Chocked is 614. ERBS `CGPTA90` is band `L09` and license 225, with a blank TP Range. `CGPTA90L` is `L18+L21+L26` and license 300. Site `CGPTA90` is `L09+L18+L21+L26` and license 525. Site `CGLHG01` license is 1200.
 

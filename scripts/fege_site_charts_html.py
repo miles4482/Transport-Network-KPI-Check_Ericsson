@@ -45,7 +45,7 @@ TABS = (
         "bandLabel": "ERBS Band",
         "listTitle": "1. Site List_ERBS",
         "search": "Search ERBS, tech, severity",
-        "hint": "Each chart is one ERBS. Max DL is that ERBS.",
+        "hint": "Each chart is one ERBS. Max DL is that ERBS. HUP usage follows sheet HUP_usage.",
     },
     {
         "id": "SiteLevel",
@@ -671,7 +671,10 @@ let query = "";
 let current = 0;
 let shown = [];
 const ROW_H = 32;
-const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "All Sites"];
+const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "HUP usage", "All Sites"];
+function tabFilters() {
+  return tabId === "ERBS" ? filters : filters.filter(name => name !== "HUP usage");
+}
 
 function primary(site) {
   return (site.category || "").split(" + ")[0];
@@ -681,6 +684,8 @@ function visible() {
   const rows = sites().filter(site => {
     if (filter === "All Sites") {
       /* every ERBS, or every site, in the FEG window */
+    } else if (filter === "HUP usage") {
+      if (!site.hupNo) return false;
     } else if (filter === "All") {
       if (!site.listed) return false;
     } else if (!site.listed || primary(site) !== filter) return false;
@@ -689,13 +694,18 @@ function visible() {
       .join(" ").toLowerCase().includes(q);
   });
   if (filter === "All Sites") rows.sort((a, b) => a.site.localeCompare(b.site));
+  if (filter === "HUP usage") rows.sort((a, b) => a.hupNo - b.hupNo);
   return rows;
 }
 function rowTitle(site) {
+  if (filter === "HUP usage" && site.hupNo) return site.hupNo + ". " + site.site;
   return site.listed && site.n ? site.n + ". " + site.site : site.site;
 }
 function rowMeta(site) {
   const band = site.band ? " · " + site.band : "";
+  if (filter === "HUP usage" && site.hupNo) {
+    return "HUP order " + site.hupOrder + " · " + primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band;
+  }
   if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "") + band;
   return primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band + " · " + site.tech + " · " + site.siteType;
 }
@@ -917,12 +927,14 @@ function renderList(scrollToSelection) {
     if (pos >= 0) list.scrollTop = Math.max(0, pos * ROW_H - 8);
   }
   paintRows();
-  document.getElementById("filters").innerHTML = filters.map(name => {
+  document.getElementById("filters").innerHTML = tabFilters().map(name => {
     const count = name === "All Sites"
       ? sites().length
-      : name === "All"
-        ? sites().filter(site => site.listed).length
-        : sites().filter(site => site.listed && primary(site) === name).length;
+      : name === "HUP usage"
+        ? sites().filter(site => site.hupNo).length
+        : name === "All"
+          ? sites().filter(site => site.listed).length
+          : sites().filter(site => site.listed && primary(site) === name).length;
     return `<button type="button" data-filter="${name}" class="${filter === name ? "on" : ""}">${name} ${count.toLocaleString()}</button>`;
   }).join("");
 }
@@ -1026,6 +1038,32 @@ activate(start.id, start.site, false);
 """
 
 
+def attach_hup(view: dict, path: Path) -> None:
+    """Mark the ERBS rows that are on sheet HUP_usage, in that sheet's order."""
+    book = load_workbook(path, read_only=True, data_only=True)
+    if "HUP_usage" not in book.sheetnames:
+        book.close()
+        raise SystemExit(f"{path.name} has no HUP_usage sheet")
+    by_name = {item["site"]: item for item in view["tabs"]["ERBS"]["sites"]}
+    marked = 0
+    missing = []
+    for row in book["HUP_usage"].iter_rows(min_row=14, max_col=4, values_only=True):
+        serial, order, _rule, name = row
+        if not isinstance(serial, (int, float)) or not name:
+            continue
+        item = by_name.get(str(name).strip())
+        if item is None:
+            missing.append(str(name))
+            continue
+        item["hupNo"] = int(serial)
+        item["hupOrder"] = int(order)
+        marked += 1
+    book.close()
+    if missing:
+        raise SystemExit("HUP usage names missing from the ERBS chart list: " + ", ".join(missing[:8]))
+    print(f"HUP usage on the ERBS tab: {marked}", flush=True)
+
+
 def write_html(view: dict, dest: Path) -> None:
     payload = json.dumps(view, separators=(",", ":")).replace("<", "\\u003c")
     page = (
@@ -1050,6 +1088,7 @@ def main() -> None:
     feg_path = Path(args.feg)
     if feg_path.exists():
         add_all_sites(view, feg_path, Path(args.license), Path(args.geo))
+    attach_hup(view, Path(args.workbook))
     dest = Path(args.output)
     write_html(view, dest)
     hours = len(view["labels"])
