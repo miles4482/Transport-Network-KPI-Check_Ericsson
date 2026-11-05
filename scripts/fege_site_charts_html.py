@@ -16,8 +16,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "38"
-EXCEL_VERSION = "v38"
+HTML_VERSION = "39"
+EXCEL_VERSION = "v39"
 # Band sits after Site Type, so every later Site List column is one place to the right of v22.
 COL_N = 0
 COL_NAME = 1
@@ -704,7 +704,7 @@ function rowTitle(site) {
 function rowMeta(site) {
   const band = site.band ? " · " + site.band : "";
   if (filter === "HUP usage" && site.hupNo) {
-    const hupBand = {1: "at least 40% of hours", 2: "30% to under 40% of hours", 3: "20% to under 30% of hours"};
+    const hupBand = {1: "at least 40% of hours, and 1H throughput under 7", 2: "at least 40% of hours, 1H throughput not under 7", 3: "30% to under 40%, and 1H throughput under 7", 4: "30% to under 40%", 5: "20% to under 30%, and 1H throughput under 7", 6: "20% to under 30%"};
     return (hupBand[site.hupOrder] || "HUP") + " · " + primary(site) + ' · <span class="sev ' + site.severity + '">' + site.severity + "</span>" + band;
   }
   if (!site.listed) return "Not listed · " + (site.tech || "") + " · " + (site.siteType || "") + band;
@@ -1047,44 +1047,38 @@ def attach_hup(view: dict, path: Path) -> None:
         raise SystemExit(f"{path.name} has no HUP_usage sheet")
     ws = book["HUP_usage"]
     header_row = None
-    col_no = col_erbs = col_usage = None
+    col_no = col_erbs = col_order = None
     for index, row in enumerate(ws.iter_rows(max_row=20, max_col=12, values_only=True), start=1):
         labels = ["" if cell is None else str(cell).strip() for cell in row]
-        if "No." in labels and "ERBS" in labels and "Usage" in labels:
+        if "No." in labels and "ERBS" in labels and "Order" in labels:
             header_row = index
             col_no = labels.index("No.")
             col_erbs = labels.index("ERBS")
-            col_usage = labels.index("Usage")
+            col_order = labels.index("Order")
             break
     if header_row is None:
         book.close()
         raise SystemExit(f"{path.name} HUP_usage has no header row")
-    band_no = {
-        "At least 40% of hours": 1,
-        "30% to under 40% of hours": 2,
-        "20% to under 30% of hours": 3,
-    }
     by_name = {item["site"]: item for item in view["tabs"]["ERBS"]["sites"]}
     for item in by_name.values():
         item.pop("hupNo", None)
         item.pop("hupOrder", None)
     marked = 0
     missing = []
-    width = max(col_no, col_erbs, col_usage) + 1
+    width = max(col_no, col_erbs, col_order) + 1
     for row in ws.iter_rows(min_row=header_row + 1, max_col=width, values_only=True):
-        serial, name, usage = row[col_no], row[col_erbs], row[col_usage]
+        serial, name, order = row[col_no], row[col_erbs], row[col_order]
         if not isinstance(serial, (int, float)) or not name:
             continue
         item = by_name.get(str(name).strip())
         if item is None:
             missing.append(str(name))
             continue
-        band = band_no.get(str(usage).strip())
-        if band is None:
+        if not isinstance(order, (int, float)) or int(order) not in range(1, 7):
             book.close()
-            raise SystemExit(f"HUP usage band not recognised for {name}: {usage}")
+            raise SystemExit(f"HUP usage order not recognised for {name}: {order}")
         item["hupNo"] = int(serial)
-        item["hupOrder"] = band
+        item["hupOrder"] = int(order)
         marked += 1
     book.close()
     if missing:
