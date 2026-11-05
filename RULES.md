@@ -106,6 +106,10 @@ Up to 10 physical sites that are on neither dashboard, so an issue chart and a n
 
 This window: `BBAKD04`, `BBAKD11`, `BBLMA10`, `BBLMA12`, `BBLMA16`, `BBLMA17`, `BBLMA19`, `BBNKC19`, `BBNKC32`, `BBRMA03`. Green header `#00B050`, outside the autofilter, category `Non Issue`, severity `—`. Issue site charts are 1–703, issue ERBS charts are 704–1579, non-issue site charts are 1580–1589, and non-issue ERBS charts are 1590–1599. They are not on the Dashboard, the GeoPlot issue set, Hourly KPI, or Immediate actions, and they are not on the HTML page.
 
+### HUP_usage
+
+Sheet `HUP_usage` is ERBS only. It was added on the v37 workbook. The other sheets stay as they are. Each row uses that ERBS `dlBbCapacityNet`, not the site sum. An hour counts when Max DL is at or above 85% of that license. Very serious is at least 40% of the ERBS hours. Order 1, the action rows, is that very-serious group with Data 1H or User 1H DL throughput under 7 Mbps. Under 7 is strict. A missing 1H value is not under 7. 4H is not used. Throughput is the physical-site 1 BusyHour value on `1. Site List_ERBS`, with L900 dropped. Later orders are 40% and above without that throughput test, then 30% to under 40%, then 20% to under 30%, and inside each band the throughput-under-7 rows come first. Inside an order the highest share is first. ERBS under 20% are not listed. The 10 non-issue comparison ERBS are not listed.
+
 ### Chart page
 
 Two tabs. **ERBS** (navy `#1F4E79`) and **SiteLevel** (teal `#0E7490`). Same filters: All, Tx Flat/Chocked, Peak Touch, License usage, All Sites. Same five lines: Max DL, Peak, Below5%Peak, license, 85% of license. OSS panels are Data 1H and User 1H only. Hash `#ERBS/name` or `#SiteLevel/name`.
