@@ -6,13 +6,13 @@ The 30 Oct–1 Nov radio sheets stay as they are. This reads `EthernetPort File_
 
 * a Front Node Site section at the bottom of Dashboard
 * sheet FrontNode_Site
-* sheet FrontNode_Charts, which the site names open
+* one chart per listed site, appended on 2. HourlyChartOfIssueSites
 * the chart page FrontNode tab
 * GeoPlot HTML and hidden _GeoData, with the same worst-grade rule
 
-Site hour = SUM of In Throughput (Mbps) on EthernetPort names that start with
-TN_ and do not start with TN_IDL. Front Node is the NE at that site whose own
-transport-port peak is the highest. The scored trace is the site sum.
+Site Name = the first 7 characters of NE Name. Each site-hour is the MAX of
+In Throughput (Mbps) across every row for that site and hour. Front Node is
+the NE whose own maximum is the highest. The scored trace is that hourly maximum.
 """
 
 from __future__ import annotations
@@ -49,8 +49,11 @@ CHARTS_ZIP = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.zip"
 GEOPLOT_HTML = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40_GeoPlot.html"
 EXTRACT_DIR = Path("/tmp/ethernet_frontnode")
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
-CHART_BLOCK = 5
 GEO_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3, "Decision": 4}
+CHART_COLS = 7
+PERIOD = "05 Nov 2026 – 07 Nov 2026"
+SNAP_SHEET = "2. HourlyChartOfIssueSites"
+S_CHART_BANNER, S_CHART_LABEL, S_CHART_VALUE, S_CHART_TAG, S_CHART_AXIS = "49", "50", "51", "52", "70"
 
 S_TITLE, S_SUB, S_NOTE, S_BANNER = "1", "2", "3", "4"
 S_TILE_L, S_TILE_A, S_TILE_LV, S_TILE_AV = "5", "6", "7", "8"
@@ -149,40 +152,45 @@ def extract_csvs() -> list[Path]:
 
 
 def load_ethernet() -> tuple[pd.DataFrame, dict[str, tuple[str, float]], int]:
-    """Site-hour transport ingress, and the front node of each site."""
+    """Hourly site maximum, and the front node of each site.
+
+    Site Name is the first 7 characters of NE Name. The site-hour value is the
+    maximum In Throughput (Mbps) among every row for that site and hour.
+    """
     frames = []
     for path in extract_csvs():
         frames.append(
             pd.read_csv(
                 path,
-                usecols=["Date", "Hour", "Site Name", "NE Name", "EthernetPort", "In Throughput (Mbps)"],
+                usecols=["Date", "Hour", "NE Name", "In Throughput (Mbps)"],
             )
         )
     raw = pd.concat(frames, ignore_index=True)
-    port = raw["EthernetPort"].astype(str)
-    raw = raw.loc[port.str.startswith("TN_") & ~port.str.startswith("TN_IDL")].copy()
-    raw["Site Name"] = raw["Site Name"].astype(str).str.strip()
     raw["NE Name"] = raw["NE Name"].astype(str).str.strip()
+    raw["Site Name"] = raw["NE Name"].str[:7]
     raw["Hour"] = pd.to_numeric(raw["Hour"], errors="coerce")
     raw["Rx"] = pd.to_numeric(raw["In Throughput (Mbps)"], errors="coerce")
     raw["Date"] = fcc.parse_kpi_date(raw["Date"])
     raw = raw.dropna(subset=["Date", "Hour", "Rx"])
     raw = raw.loc[~raw["Site Name"].str.lower().isin(["", "nan", "none"])]
     raw["Hour"] = raw["Hour"].astype(int)
-    raw = raw.sort_values(["Site Name", "NE Name", "EthernetPort", "Date", "Hour"])
-    raw = raw.drop_duplicates(
-        ["Site Name", "NE Name", "EthernetPort", "Date", "Hour"], keep="last"
-    )
-    ne_hour = (
-        raw.groupby(["Site Name", "NE Name", "Date", "Hour"], as_index=False)["Rx"].sum(min_count=1)
-    )
-    ne_peak = ne_hour.groupby(["Site Name", "NE Name"], as_index=False)["Rx"].max()
+    sample = raw.loc[
+        (raw["Site Name"] == "BBAKD01")
+        & (raw["Date"].dt.month == 11)
+        & (raw["Date"].dt.day == 5)
+        & (raw["Hour"] == 0),
+        "Rx",
+    ]
+    if sample.empty or abs(float(sample.max()) - 979.9746635) > 1e-6:
+        raise SystemExit(f"BBAKD01 5 Nov hour 0 max is {sample.max() if len(sample) else 'missing'}")
+    print(f"  BBAKD01 5 Nov 00:00 max = {float(sample.max()):.7f} from {len(sample)} rows", flush=True)
+    ne_peak = raw.groupby(["Site Name", "NE Name"], as_index=False)["Rx"].max()
     front: dict[str, tuple[str, float]] = {}
     for site, group in ne_peak.groupby("Site Name", sort=False):
         group = group.sort_values(["Rx", "NE Name"], ascending=[False, True])
         top = group.iloc[0]
         front[str(site)] = (str(top["NE Name"]), float(top["Rx"]))
-    site_hour = raw.groupby(["Date", "Hour", "Site Name"], as_index=False)["Rx"].sum(min_count=1)
+    site_hour = raw.groupby(["Date", "Hour", "Site Name"], as_index=False)["Rx"].max()
     site_hour = site_hour.rename(columns={"Site Name": pt.eric.ERIC_SITE_COL, "Rx": pt.TRACE_COL})
     site_hour["Date"] = pd.to_datetime(site_hour["Date"]).dt.strftime("%-d-%b")
     return site_hour, front, int(raw["Site Name"].nunique())
@@ -320,7 +328,7 @@ def _header_row(r: int, labels: list[str], height: float = 30) -> str:
     return row_xml(r, height, [c_str(f"{col_name(i)}{r}", S_HEADER, text) for i, text in enumerate(labels)], len(labels) - 1)
 
 
-def dashboard_block(start: int, records, summary, charts, n_sites: int):
+def dashboard_block(start: int, records, summary, charts, n_sites: int, chart_rows: dict[str, int]):
     chart_index = {item["site"]: i for i, item in enumerate(charts)}
     rows: list[str] = []
     merges: list[str] = []
@@ -346,16 +354,18 @@ def dashboard_block(start: int, records, summary, charts, n_sites: int):
         S_NOTE,
         "Vendor counter In Throughput (Mbps), from EthernetPort File_, window 5 Nov 2026 – 7 Nov 2026. "
         "The radio sheets above stay on 30 Oct 2026 – 1 Nov 2026. "
-        "Site Name is the Site Name column. Each hour is the SUM of In Throughput (Mbps) on transport ports "
-        "for that site, date, and hour. A transport port starts with TN_ and does not start with TN_IDL. "
-        "TN_IDL is the link between nodes. auto_ and RiPort rows are not added. "
+        "Site Name is the first 7 characters of NE Name. "
+        "Each hour, Tx usage is the maximum In Throughput (Mbps) among every row for that site and hour, "
+        "every NE and every EthernetPort. "
+        "BBAKD01 at 00:00 on 5 Nov is 979.9746635, the highest of its 14 rows. "
         "License is the SUM of dlBbCapacityNet for every NodeId with that Site Name. UL is not used. "
-        "Front Node is the NE Name whose own transport-port peak is the highest. The scored trace is the site sum, "
-        "the same idea as Site Level. "
-        "Peak is the highest hourly site sum. Below5%Peak is Peak × 95%. An hour touches when the site sum is at or above Below5%Peak. "
+        "Front Node is the NE Name whose own maximum In Throughput is the highest. "
+        "The scored trace is that hourly maximum, with the same floors as Site Level. "
+        "Peak is the highest hourly maximum. Below5%Peak is Peak × 95%. "
+        "An hour touches when the hourly maximum is at or above Below5%Peak. "
         "Tx Flat/Chocked, Peak Touch, and License usage use the same floors as the Site Level Dashboard. "
         f"A site is scored when it has at least {pt.MIN_SAMPLES} hourly samples and a Peak of at least {pt.MIN_PEAK_MBPS:.0f} Mbit/s. "
-        "The site name opens FrontNode_Charts. The chart page FrontNode tab draws the hourly lines. "
+        "The site name opens that chart on 2. HourlyChartOfIssueSites. "
         "GeoPlot HTML and _GeoData include these sites.",
         11,
     )
@@ -471,7 +481,7 @@ def dashboard_block(start: int, records, summary, charts, n_sites: int):
             pfmt = S_PCT_Z if zebra else S_PCT
             link = S_LINK_Z if zebra else S_LINK
             chart_i = chart_index[rec["site"]]
-            anchor = chart_i * CHART_BLOCK + 1
+            anchor = chart_rows[rec["site"]]
             cells = [
                 c_num(f"A{r}", ifmt, chart_i + 1),
                 c_str(f"B{r}", link, rec["site"]),
@@ -488,15 +498,15 @@ def dashboard_block(start: int, records, summary, charts, n_sites: int):
             ]
             add(row_xml(r, 18, cells, 11))
             links.append(
-                f'<hyperlink ref="B{r - 1}" location="\'FrontNode_Charts\'!A{anchor}" display="{xml_text(rec["site"])}"/>'
+                f'<hyperlink ref="B{r - 1}" location="\'{SNAP_SHEET}\'!A{anchor}" display="{xml_text(rec["site"])}"/>'
             )
         r += 1
 
-    r = _license_block(r, rows, merges, links, summary, chart_index)
+    r = _license_block(r, rows, merges, links, summary, chart_index, chart_rows)
     return "".join(rows), merges, links, r - 1
 
 
-def _license_block(r, rows, merges, links, summary, chart_index):
+def _license_block(r, rows, merges, links, summary, chart_index, chart_rows):
     records = summary["records"]
     use = f"{pt.LICENSE_USE * 100:.0f}"
 
@@ -517,7 +527,7 @@ def _license_block(r, rows, merges, links, summary, chart_index):
         64,
         S_NOTE,
         "dlBbCapacityNet is summed for every NodeId that shares the Site Name. UL is not used. "
-        f"An hour counts when the site sum of In Throughput (Mbps) / that combined license is at least {use}%. "
+        f"An hour counts when the hourly maximum of In Throughput (Mbps) / that combined license is at least {use}%. "
         f"A site is listed when those hours are at least {pt.LICENSE_HOURS_PCT:.0f}% of its hours. "
         "License usage type is that share of hours: Severe at least 50%, High 40% to under 50%, "
         "Medium 30% to under 40%, Low 20% to under 30%. "
@@ -590,7 +600,7 @@ def _license_block(r, rows, merges, links, summary, chart_index):
             pfmt = S_PCT_Z if zebra else S_PCT
             link = S_LINK_Z if zebra else S_LINK
             chart_i = chart_index[rec["site"]]
-            anchor = chart_i * CHART_BLOCK + 1
+            anchor = chart_rows[rec["site"]]
             cells = [
                 c_num(f"A{r}", ifmt, chart_i + 1),
                 c_str(f"B{r}", link, rec["site"]),
@@ -605,7 +615,7 @@ def _license_block(r, rows, merges, links, summary, chart_index):
             ]
             add(row_xml(r, 18, cells, 9))
             links.append(
-                f'<hyperlink ref="B{r - 1}" location="\'FrontNode_Charts\'!A{anchor}" display="{xml_text(rec["site"])}"/>'
+                f'<hyperlink ref="B{r - 1}" location="\'{SNAP_SHEET}\'!A{anchor}" display="{xml_text(rec["site"])}"/>'
             )
         r += 1
     return r
@@ -622,7 +632,7 @@ def gap_pct(item: dict) -> float | None:
     return (lic - peak) / lic * 100.0
 
 
-def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
+def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int]):
     rows: list[str] = []
     merges: list[str] = []
     links: list[str] = []
@@ -630,12 +640,12 @@ def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
     r = 1
     intro = (
         "5 Nov 2026 – 7 Nov 2026. These rows are the sites on the Front Node Site Dashboard. "
-        "Each hour is the SUM of In Throughput (Mbps) on TN_ ports, excluding TN_IDL. "
+        "Site Name is the first 7 characters of NE Name. "
+        "Each hour is the maximum In Throughput (Mbps) among every row for that site and hour. "
         "License is the SUM of dlBbCapacityNet. The floors match Site Level. "
         "BH Flag 1H is blank: the OSS files are 30 Oct–1 Nov, not this window. "
         "Band is copied from 1. Site List_SiteLevel when that site is listed there. "
-        "The site name opens FrontNode_Charts. Map opens the GeoPlot HTML on that site. "
-        "The chart page FrontNode tab draws the hourly lines."
+        "The site name opens 2. HourlyChartOfIssueSites. Map opens the GeoPlot HTML on that site."
     )
     xml, ref = span(r, 28, S_TITLE, "Front Node Site — sites on the Front Node Site Dashboard", 24)
     rows.append(xml)
@@ -673,7 +683,7 @@ def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
         severity = item.get("display_severity") or "—"
         where = touch["cap_when"] if touch else lines["cap_when"]
         code = pt.site_code(item["site"])
-        anchor = i * CHART_BLOCK + 1
+        anchor = chart_rows[item["site"]]
         front_ne, front_peak = front.get(item["site"], ("", float("nan")))
         cells = [
             c_num(f"A{r}", ifmt, i + 1),
@@ -704,7 +714,7 @@ def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
         ]
         rows.append(row_xml(r, 18, cells, 24))
         links.append(
-            f'<hyperlink ref="B{r}" location="\'FrontNode_Charts\'!A{anchor}" display="{xml_text(item["site"])}"/>'
+            f'<hyperlink ref="B{r}" location="\'{SNAP_SHEET}\'!A{anchor}" display="{xml_text(item["site"])}"/>'
         )
         rid = f"rId{len(rels) + 1}"
         rels.append((rid, f"{GEOPLOT_HTML.name}#{item['site']}"))
@@ -724,7 +734,7 @@ def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
         dimension=f"A1:Y{last}",
         cols=f"<cols>{cols}</cols>",
         header="&amp;L&amp;8&amp;K1F4E79Front Node Site&amp;R&amp;8Transmission Link Health Review  |  Ericsson  |  5 Nov 2026 – 7 Nov 2026",
-        footer="&amp;L&amp;8In Throughput (Mbps) summed on TN ports, excluding TN_IDL&amp;R&amp;8Page &amp;P of &amp;N",
+        footer="&amp;L&amp;8Each hour is the maximum In Throughput (Mbps)&amp;R&amp;8Page &amp;P of &amp;N",
         freeze=header_row,
     )
     xml = xml.replace(
@@ -735,68 +745,275 @@ def site_sheet(charts, front, bands, tech, types, chart_targets, map_targets):
     return xml, rels_xml(rels), first_data, last
 
 
-def _chart_sheet_strided(charts, front):
-    """One 5-row block per site, starting at row i * 5 + 1, matching the dashboard links."""
-    rows = []
-    merges = []
-    links = []
-    rels = []
+def _banner(item: dict, number: int) -> str:
+    tags = []
+    touch = item.get("touch")
+    if item.get("category") == pt.CAT_TX and touch:
+        tags.append(
+            f"{pt.CAT_TX} {item['display_severity']} · gap {float(touch['gap']) * 100:.1f}% · {pt.TX_COMMENT}"
+        )
+    elif item.get("category") == pt.CAT_PEAK and touch:
+        tags.append(f"{pt.CAT_PEAK} {item['display_severity']}")
+    elif item.get("category") == pt.CAT_LICENSE:
+        tags.append(f"{pt.CAT_LICENSE} {item.get('display_severity', '')}")
+    lic = item.get("license")
+    if lic and item.get("category") != pt.CAT_LICENSE:
+        tags.append(f"License {float(lic['share']):.1f}% of hours ≥{pt.LICENSE_USE * 100:.0f}%")
+    tail = "    ·    ".join(tags)
+    return f"{number:02d}    {item['site']}    ·    {PERIOD}    ·    {tail}"
+
+
+def _num_cell(ref: str, value: float) -> str:
+    return f'<c r="{ref}"><v>{value:.10g}</v></c>'
+
+
+def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_rels: bytes, content_types: bytes, charts: list[dict], work: pd.DataFrame):
+    """Append one Excel line chart per Front Node site onto the existing hourly-chart sheet."""
+    import io
+    import xlsxwriter
+
+    match = re.search(br'<dimension ref="A1:[A-Z]+(\d+)"', sheet4)
+    if not match:
+        raise SystemExit("Hourly chart sheet has no dimension")
+    last_row = int(match.group(1))
+    existing = last_row // fcc.BLOCK_ROWS
+    if existing * fcc.BLOCK_ROWS != last_row:
+        raise SystemExit(f"Hourly chart sheet ends at row {last_row}, not a multiple of {fcc.BLOCK_ROWS}")
+    days = list(pd.date_range(work["Date"].min().normalize(), work["Date"].max().normalize(), freq="D"))
+    if len(days) != fcc.SNAP_DAYS:
+        raise SystemExit(f"Expected {fcc.SNAP_DAYS} chart days, found {len(days)}")
+    if (existing + len(charts)) * CHART_COLS > 16384:
+        raise SystemExit("Front Node chart data would pass Excel's column limit")
+    by_site = {site: group for site, group in work.groupby("eNodeB Name", sort=False)}
+
+    buf = io.BytesIO()
+    book = xlsxwriter.Workbook(buf, {"in_memory": True, "strings_to_urls": False})
+    data = book.add_worksheet("_ChartData")
+    dummy = book.add_worksheet("dummy")
+    cat_fmt = book.add_format({"font_name": "Calibri", "font_size": 8, "align": "center"})
+    data_cells: dict[int, list[str]] = {row: [] for row in range(1, 74)}
+    block_rows: list[str] = []
+    merges: list[str] = []
+    anchors: list[str] = []
+    rels: list[str] = []
+    use_pct = pt.LICENSE_USE * 100
+
+    print(f"Drawing {len(charts)} Front Node charts after chart {existing}...", flush=True)
     for i, item in enumerate(charts):
-        r = i * CHART_BLOCK + 1
-        front_ne, front_peak = front.get(item["site"], ("", float("nan")))
-        severity = item.get("display_severity") or "—"
-        title = (
-            f"{i + 1}. {item['site']}    ·    Front Node {front_ne}    ·    "
-            f"{item.get('category') or ''}    ·    {severity}"
-        )
-        xml, ref = span(r, 22, S_SECTION, title, 11)
-        rows.append(xml)
-        merges.append(ref)
-        rid = f"rId{len(rels) + 1}"
-        rels.append((rid, f"{CHARTS_HTML.name}#FrontNode/{item['site']}"))
-        links.append(f'<hyperlink ref="A{r}" r:id="{rid}" display="{xml_text(item["site"])}"/>')
-        rows.append(_header_row(r + 1, [
-            "Peak (Mbit/s)", "Below5%Peak", "License (Mbps)", "Gap (%)",
-            "Peak ratio (%)", "Where touched", "Front Node", "Front Node peak",
-        ]))
+        g = existing + i
+        c0 = g * CHART_COLS
+        excel_top = g * fcc.BLOCK_ROWS + 1
         lines = item["lines"]
-        stat = item.get("lic_stat")
-        touch = item.get("touch")
-        cells = [
-            c_num(f"A{r + 2}", S_NUM, lines["peak"]),
-            c_num(f"B{r + 2}", S_NUM, lines["level"]),
-            c_num(f"C{r + 2}", S_NUM, finite(stat["license"]) if stat else None),
-            c_num(f"D{r + 2}", S_PCT, gap_pct(item)),
-            c_num(f"E{r + 2}", S_PCT, lines["hours_pct"]),
-            c_str(f"F{r + 2}", S_CENTER, (touch or {}).get("cap_when") or lines["cap_when"]),
-            c_str(f"G{r + 2}", S_CENTER, front_ne),
-            c_num(f"H{r + 2}", S_NUM, front_peak),
+        peak = float(lines["peak"])
+        level = float(lines["level"])
+        license_mbps = float(item.get("license_mbps", float("nan")))
+        threshold = license_mbps * pt.LICENSE_USE if np.isfinite(license_mbps) else float("nan")
+        headers = ("Date", "Time", "Rx", "Peak", "Touch", "License", "Threshold")
+        for offset, name in enumerate(headers):
+            ref = f"{col_name(c0 + offset)}1"
+            data.write(0, c0 + offset, name)
+            data_cells[1].append(c_str(ref, "0", name).replace(' s="0"', "", 1))
+        site_rows = by_site.get(item["site"])
+        rx_by_key = {}
+        if site_rows is not None:
+            rx_by_key = {
+                (pd.Timestamp(day).normalize(), int(hour)): float(value)
+                for day, hour, value in zip(site_rows["Date"], site_rows["Hour"], site_rows["Rx"])
+                if np.isfinite(value)
+            }
+        dates: list[str] = []
+        times: list[str] = []
+        plotted = [value for value in (peak, level, license_mbps, threshold) if np.isfinite(value)]
+        r = 0
+        for day in days:
+            date_label = f"{int(day.day)}/{fcc.MONTHS[int(day.month) - 1]}"
+            for hour in range(24):
+                r += 1
+                excel_r = r + 1
+                dates.append(date_label if hour == 0 else "")
+                times.append(f"{hour:02d}:00")
+                if hour == 0:
+                    data.write_string(r, c0, date_label, cat_fmt)
+                    data_cells[excel_r].append(c_str(f"{col_name(c0)}{excel_r}", S_CHART_AXIS, date_label))
+                else:
+                    data.write_blank(r, c0, None)
+                data.write_string(r, c0 + 1, f"{hour:02d}:00", cat_fmt)
+                data_cells[excel_r].append(c_str(f"{col_name(c0 + 1)}{excel_r}", S_CHART_AXIS, f"{hour:02d}:00"))
+                value = rx_by_key.get((day.normalize(), hour))
+                if value is not None and np.isfinite(value):
+                    data.write_number(r, c0 + 2, value)
+                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 2)}{excel_r}", value))
+                    plotted.append(value)
+                if np.isfinite(peak):
+                    data.write_number(r, c0 + 3, peak)
+                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 3)}{excel_r}", peak))
+                if np.isfinite(level):
+                    data.write_number(r, c0 + 4, level)
+                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 4)}{excel_r}", level))
+                if np.isfinite(license_mbps):
+                    data.write_number(r, c0 + 5, license_mbps)
+                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 5)}{excel_r}", license_mbps))
+                if np.isfinite(threshold):
+                    data.write_number(r, c0 + 6, threshold)
+                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 6)}{excel_r}", threshold))
+        chart = book.add_chart({"type": "line"})
+        chart.show_blanks_as("gap")
+        chart.set_title({"name": item["site"], "name_font": {"name": "Calibri", "size": 16, "color": "#595959"}})
+        series = [
+            ("In Throughput (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25}, True),
+            (f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}, np.isfinite(peak)),
+            (f"Below5%Peak ({level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}, np.isfinite(level)),
+            (f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}, np.isfinite(license_mbps)),
+            (f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}, np.isfinite(threshold)),
         ]
-        rows.append(row_xml(r + 2, 18, cells, 7))
-        note, ref = span(
-            r + 3, 32, S_NOTE,
-            "This name opens the chart page on the FrontNode tab. "
-            f"File {CHARTS_HTML.name}, hash #FrontNode/{item['site']}. "
-            "Lines: In Throughput (Mbps), Peak, Below5%Peak, license, 85% of license.",
-            11,
+        for name, offset, line, ok in series:
+            if not ok:
+                continue
+            chart.add_series(
+                {
+                    "name": name,
+                    "categories": ["_ChartData", 1, c0, r, c0 + 1],
+                    "categories_data": [dates, times],
+                    "values": ["_ChartData", 1, c0 + offset, r, c0 + offset],
+                    "line": line,
+                    "marker": {"type": "none"},
+                }
+            )
+        y_max, y_unit = fcc._chart_y_scale(plotted or [50.0])
+        chart.set_x_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 8, "color": "#595959", "rotation": -90},
+                "label_position": "nextTo",
+                "label_align": "center",
+                "position_axis": "on_tick",
+                "major_tick_mark": "none",
+                "minor_tick_mark": "none",
+                "major_gridlines": {"visible": False},
+                "minor_gridlines": {"visible": False},
+                "line": {"color": "#B0B0B0"},
+            }
         )
-        rows.append(note)
-        merges.append(ref)
-    last = (len(charts) - 1) * CHART_BLOCK + 4 if charts else 1
-    cols = "".join(
-        f'<col min="{i}" max="{i}" width="{w}" customWidth="1"/>'
-        for i, w in enumerate([22, 16, 16, 12, 16, 18, 18, 20, 14, 14, 14, 18], start=1)
+        chart.set_y_axis(
+            {
+                "num_font": {"name": "Calibri", "size": 9, "color": "#595959"},
+                "min": 0,
+                "max": y_max,
+                "major_unit": y_unit,
+                "major_gridlines": {"visible": True, "line": {"color": "#D9D9D9"}},
+                "line": {"none": True},
+            }
+        )
+        chart.set_legend({"position": "top", "font": {"name": "Calibri", "size": 9}})
+        chart.set_chartarea({"border": {"color": "#D0D0D0"}, "fill": {"color": "white"}})
+        chart.set_plotarea(
+            {
+                "border": {"none": True},
+                "fill": {"color": "white"},
+                "layout": {"x": 0.06, "y": 0.16, "width": 0.91, "height": 0.58},
+            }
+        )
+        chart.set_size({"width": 1200, "height": 410})
+        dummy.insert_chart(0, 0, chart)
+
+        labels = [
+            (0, "Peak (Mbit/s)", f"{peak:.2f}" if np.isfinite(peak) else "—"),
+            (2, "Below5%Peak (Mbit/s)", f"{level:.2f}" if np.isfinite(level) else "—"),
+            (4, "License (Mbps)", f"{license_mbps:.2f}" if np.isfinite(license_mbps) else "No license"),
+            (6, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}" if np.isfinite(threshold) else "—"),
+        ]
+        banner_cells = [c_str(f"A{excel_top}", S_CHART_BANNER, _banner(item, i + 1))]
+        banner_cells += [c_blank(f"{col_name(col)}{excel_top}", S_CHART_BANNER) for col in range(1, 8)]
+        label_cells = []
+        value_cells = []
+        for col, label, value in labels:
+            label_cells += [
+                c_str(f"{col_name(col)}{excel_top + 1}", S_CHART_LABEL, label),
+                c_blank(f"{col_name(col + 1)}{excel_top + 1}", S_CHART_LABEL),
+            ]
+            value_cells += [
+                c_str(f"{col_name(col)}{excel_top + 2}", S_CHART_VALUE, value),
+                c_blank(f"{col_name(col + 1)}{excel_top + 2}", S_CHART_VALUE),
+            ]
+            merges.append(f"{col_name(col)}{excel_top + 1}:{col_name(col + 1)}{excel_top + 1}")
+            merges.append(f"{col_name(col)}{excel_top + 2}:{col_name(col + 1)}{excel_top + 2}")
+        tag_cells = [c_str(f"A{excel_top + 3}", S_CHART_TAG, "Front Node")]
+        tag_cells += [c_blank(f"{col_name(col)}{excel_top + 3}", S_CHART_TAG) for col in range(1, 3)]
+        block_rows.append(row_xml(excel_top, 26.25, banner_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
+        block_rows.append(row_xml(excel_top + 1, 15.75, label_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
+        block_rows.append(row_xml(excel_top + 2, 20.25, value_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
+        block_rows.append(row_xml(excel_top + 3, 18, tag_cells, 2).replace('spans="1:3"', 'spans="1:23"', 1))
+        for offset in range(4, fcc.BLOCK_ROWS):
+            block_rows.append(f'<row r="{excel_top + offset}" spans="1:23" ht="15.75" customHeight="1"/>')
+        merges.append(f"A{excel_top}:H{excel_top}")
+        merges.append(f"A{excel_top + 3}:C{excel_top + 3}")
+        chart_no = g + 1
+        from_row = g * fcc.BLOCK_ROWS + 4
+        anchors.append(
+            "<xdr:twoCellAnchor editAs=\"oneCell\">"
+            f"<xdr:from><xdr:col>0</xdr:col><xdr:colOff>57150</xdr:colOff><xdr:row>{from_row}</xdr:row><xdr:rowOff>57150</xdr:rowOff></xdr:from>"
+            f"<xdr:to><xdr:col>10</xdr:col><xdr:colOff>342900</xdr:colOff><xdr:row>{from_row + 19}</xdr:row><xdr:rowOff>161925</xdr:rowOff></xdr:to>"
+            "<xdr:graphicFrame macro=\"\"><xdr:nvGraphicFramePr>"
+            f"<xdr:cNvPr id=\"{chart_no + 1}\" name=\"Chart {chart_no}\"/><xdr:cNvGraphicFramePr/>"
+            "</xdr:nvGraphicFramePr><xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
+            "<a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/chart\">"
+            "<c:chart xmlns:c=\"http://schemas.openxmlformats.org/drawingml/2006/chart\" "
+            "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" "
+            f"r:id=\"rId{chart_no}\"/>"
+            "</a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>"
+        )
+        rels.append(
+            f'<Relationship Id="rId{chart_no}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" '
+            f'Target="../charts/chart{chart_no}.xml"/>'
+        )
+    book.close()
+    buf.seek(0)
+    with zipfile.ZipFile(buf) as temp:
+        chart_parts = {
+            f"xl/charts/chart{existing + i + 1}.xml": temp.read(f"xl/charts/chart{i + 1}.xml")
+            for i in range(len(charts))
+        }
+    first_formula = re.search(br"<c:f>_ChartData!\$[A-Z]+\$2:\$[A-Z]+\$73</c:f>", next(iter(chart_parts.values())))
+    if not first_formula:
+        raise SystemExit("Front Node chart is missing its _ChartData formula")
+
+    new_last = (existing + len(charts)) * fcc.BLOCK_ROWS
+    sheet4 = re.sub(br'<dimension ref="A1:W\d+"', f'<dimension ref="A1:W{new_last}"'.encode(), sheet4, count=1)
+    sheet4 = insert_before(sheet4, b"</sheetData>", "".join(block_rows).encode())
+    merge_count = re.search(br'<mergeCells count="(\d+)">', sheet4)
+    sheet4 = sheet4[: merge_count.start()] + f'<mergeCells count="{int(merge_count.group(1)) + len(merges)}">'.encode() + sheet4[merge_count.end() :]
+    sheet4 = sheet4.replace(
+        b"</mergeCells>",
+        "".join(f'<mergeCell ref="{ref}"/>' for ref in merges).encode() + b"</mergeCells>",
+        1,
     )
-    xml = sheet_document(
-        rows, merges, links,
-        tab="FF1F4E79",
-        dimension=f"A1:L{last}",
-        cols=f"<cols>{cols}</cols>",
-        header="&amp;L&amp;8&amp;K1F4E79Front Node charts&amp;R&amp;8Transmission Link Health Review  |  5 Nov 2026 – 7 Nov 2026",
-        footer="&amp;L&amp;8In Throughput (Mbps)&amp;R&amp;8Page &amp;P of &amp;N",
-        freeze=None,
+    last_col = (existing + len(charts)) * CHART_COLS
+    sheet5_text = sheet5.decode()
+    sheet5_text = re.sub(r'<dimension ref="[^"]+"', f'<dimension ref="A1:{col_name(last_col - 1)}73"', sheet5_text, count=1)
+    sheet5_text = sheet5_text.replace('spans="1:11193"', f'spans="1:{last_col}"')
+    pieces = []
+    cursor = 0
+    for row, cells in data_cells.items():
+        token = f'<row r="{row}"'
+        at = sheet5_text.find(token, cursor)
+        end = sheet5_text.find("</row>", at)
+        if at < 0 or end < 0:
+            raise SystemExit(f"_ChartData is missing row {row}")
+        pieces.append(sheet5_text[cursor:end])
+        pieces.append("".join(cells))
+        cursor = end
+    pieces.append(sheet5_text[cursor:])
+    sheet5 = "".join(pieces).encode()
+    drawing = insert_before(drawing, b"</xdr:wsDr>", "".join(anchors).encode())
+    drawing_rels = insert_before(drawing_rels, b"</Relationships>", "".join(rels).encode())
+    overrides = "".join(
+        f'<Override PartName="/xl/charts/chart{existing + i + 1}.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>'
+        for i in range(len(charts))
     )
-    return xml, rels_xml(rels)
+    content_types = insert_before(content_types, b"</Types>", overrides.encode())
+    chart_rows = {item["site"]: (existing + i) * fcc.BLOCK_ROWS + 1 for i, item in enumerate(charts)}
+    return sheet4, sheet5, drawing, drawing_rels, content_types, chart_parts, chart_rows
 
 
 def method_rows(text_rows: list[tuple[str, str]]) -> tuple[str, list[str]]:
@@ -942,7 +1159,7 @@ def front_tab(charts, work, front, bands, tech, types, summary) -> dict:
         "bandLabel": "Band",
         "listTitle": "FrontNode_Site",
         "search": "Search site, front node, severity",
-        "hint": "Each chart is one site. In Throughput is the sum of TN_ ports, excluding TN_IDL, for 5–7 Nov 2026. License is the summed dlBbCapacityNet.",
+        "hint": "Each chart is one site. In Throughput is the maximum of every row for that site and hour, 5–7 Nov 2026. License is the summed dlBbCapacityNet.",
         "noun": "issue sites",
         "period": "05 Nov 2026 – 07 Nov 2026",
         "rxName": "In Throughput (Mbps)",
@@ -1062,7 +1279,7 @@ def insert_before(blob: bytes, marker: bytes, extra: bytes) -> bytes:
 def main() -> None:
     print("Loading EthernetPort files...", flush=True)
     site_hour, front, n_tn_sites = load_ethernet()
-    print(f"Transport-port sites: {n_tn_sites:,}  ·  site-hours: {len(site_hour):,}", flush=True)
+    print(f"Sites: {n_tn_sites:,}  ·  site-hours: {len(site_hour):,}", flush=True)
     work, records, summary, charts = score(site_hour)
     peak_max = float(np.nanmax(work["Rx"])) if len(work) else 0
     print(
@@ -1070,8 +1287,6 @@ def main() -> None:
         f"charts {len(charts):,}  ·  license listed {len(summary['records']):,}  ·  max peak {peak_max:.1f}",
         flush=True,
     )
-    if peak_max > 10000:
-        raise SystemExit(f"Peak {peak_max:.1f} is above 10000 Mbps. The TN-port filter did not hold.")
     for code in ("CGPTA90", "CGLHG01"):
         stat = summary["stats_by_site"].get(code)
         if stat:
@@ -1089,6 +1304,13 @@ def main() -> None:
         workbook = book.read("xl/workbook.xml")
         workbook_rels = book.read("xl/_rels/workbook.xml.rels")
         content_types = book.read("[Content_Types].xml")
+        sheet4 = book.read("xl/worksheets/sheet4.xml")
+        sheet5 = book.read("xl/worksheets/sheet5.xml")
+        drawing = book.read("xl/drawings/drawing1.xml")
+        drawing_rels = book.read("xl/drawings/_rels/drawing1.xml.rels")
+    sheet4, sheet5, drawing, drawing_rels, content_types, chart_parts, chart_rows = append_hourly_charts(
+        sheet4, sheet5, drawing, drawing_rels, content_types, charts, work
+    )
     strings = shared_strings(strings_blob)
     geo_rows = read_geodata(geodata, strings)
     geo_rows, geo_stats = merge_geo(geo_rows, charts, tech)
@@ -1099,7 +1321,9 @@ def main() -> None:
     )
 
     start = max(int(match) for match in re.findall(br'<row r="(\d+)"', dashboard)) + 2
-    block, merges, links, last_row = dashboard_block(start, records, summary, charts, int(work["eNodeB Name"].nunique()))
+    block, merges, links, last_row = dashboard_block(
+        start, records, summary, charts, int(work["eNodeB Name"].nunique()), chart_rows
+    )
     dashboard = insert_before(dashboard, b"</sheetData>", block.encode())
     dashboard = re.sub(br'<dimension ref="[^"]+"', f'<dimension ref="A1:L{last_row}"/>'.encode(), dashboard, count=1)
     merge_xml = "".join(f'<mergeCell ref="{ref}"/>' for ref in merges).encode()
@@ -1123,14 +1347,15 @@ def main() -> None:
             ),
             (
                 "Site hour",
-                "SUM of In Throughput (Mbps) for EthernetPort names that start with TN_ and do not start with TN_IDL, "
-                "across every NE of that Site Name, for that date and hour. "
-                "TN_IDL is the cable between nodes. auto_ and RiPort are not the site ingress, and some of those counters spike.",
+                "Site Name is the first 7 characters of NE Name. "
+                "Tx usage for a site and hour is the maximum In Throughput (Mbps) among every row of that site and hour, "
+                "every NE and every EthernetPort. "
+                "BBAKD01 at 00:00 on 5 Nov is 979.9746635, the highest of its 14 rows.",
             ),
             (
                 "Front Node",
-                "The NE Name at the site whose own TN-port peak is the highest. Shown on FrontNode_Site. "
-                "The grade uses the site sum, not that NE alone.",
+                "The NE Name at the site whose own maximum In Throughput is the highest. Shown on FrontNode_Site. "
+                "The grade uses the hourly site maximum, not that NE alone.",
             ),
             (
                 "Same floors as Site Level",
@@ -1150,8 +1375,7 @@ def main() -> None:
             ),
             (
                 "Links",
-                "Dashboard and FrontNode_Site names open FrontNode_Charts. "
-                "FrontNode_Charts opens the chart page hash #FrontNode/site. "
+                "Dashboard and FrontNode_Site names open that site's chart on 2. HourlyChartOfIssueSites. "
                 "The Map column opens the GeoPlot HTML on that site. "
                 "BH Flag 1H is blank because the OSS files are the radio window, not 5–7 Nov.",
             ),
@@ -1207,32 +1431,28 @@ def main() -> None:
         b"Site Level Dashboard is first. ERBS Dashboard follows. No. starts at 1 on the Site Level charts and continues on the ERBS charts.",
         b"Site Level Dashboard is first. ERBS Dashboard follows. Front Node Site Dashboard is last. "
         b"No. starts at 1 on the Site Level charts and continues on the ERBS charts. "
-        b"Front Node numbers start again at 1 on FrontNode_Charts.",
+        b"Front Node numbers start again at 1. Those charts follow the radio charts on 2. HourlyChartOfIssueSites.",
     )
     strings_blob = strings_blob.replace(b"FEGE_Choked_Flat_Sites_Ericsson_v39", b"FEGE_Choked_Flat_Sites_Ericsson_v40")
     strings_blob = strings_blob.replace(b"Excel v39", b"Excel v40")
     strings_blob = strings_blob.replace(b"v39    ", b"v40    ")
 
-    site_xml, site_rels, _first, _last = site_sheet(charts, front, bands, tech, types, None, None)
-    chart_xml, chart_rels = _chart_sheet_strided(charts, front)
+    site_xml, site_rels, _first, _last = site_sheet(charts, front, bands, tech, types, chart_rows)
     workbook = workbook.replace(
         b'<sheet name="1. Site List_ERBS" sheetId="3" r:id="rId3"/>',
         b'<sheet name="1. Site List_ERBS" sheetId="3" r:id="rId3"/>'
-        b'<sheet name="FrontNode_Site" sheetId="14" r:id="rId17"/>'
-        b'<sheet name="FrontNode_Charts" sheetId="15" r:id="rId18"/>',
+        b'<sheet name="FrontNode_Site" sheetId="14" r:id="rId17"/>',
         1,
     )
     workbook_rels = workbook_rels.replace(
         b"</Relationships>",
         b'<Relationship Id="rId17" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet14.xml"/>'
-        b'<Relationship Id="rId18" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet15.xml"/>'
         b"</Relationships>",
         1,
     )
     content_types = content_types.replace(
         b"</Types>",
         b'<Override PartName="/xl/worksheets/sheet14.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        b'<Override PartName="/xl/worksheets/sheet15.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         b"</Types>",
         1,
     )
@@ -1240,27 +1460,43 @@ def main() -> None:
     patch_zip(
         {
             "xl/worksheets/sheet1.xml": dashboard,
+            "xl/worksheets/sheet4.xml": sheet4,
+            "xl/worksheets/sheet5.xml": sheet5,
             "xl/worksheets/sheet7.xml": method,
             "xl/worksheets/sheet8.xml": geo_sheet,
             "xl/worksheets/sheet9.xml": geodata_sheet(geo_rows).encode(),
             "xl/worksheets/sheet14.xml": site_xml.encode(),
-            "xl/worksheets/sheet15.xml": chart_xml.encode(),
             "xl/worksheets/_rels/sheet8.xml.rels": geo_rels,
             "xl/worksheets/_rels/sheet14.xml.rels": site_rels.encode(),
-            "xl/worksheets/_rels/sheet15.xml.rels": chart_rels.encode(),
+            "xl/drawings/drawing1.xml": drawing,
+            "xl/drawings/_rels/drawing1.xml.rels": drawing_rels,
             "xl/sharedStrings.xml": strings_blob,
             "xl/workbook.xml": workbook,
             "xl/_rels/workbook.xml.rels": workbook_rels,
             "[Content_Types].xml": content_types,
+            **chart_parts,
         }
     )
-    for name in (
-        "xl/worksheets/sheet1.xml",
-        "xl/worksheets/sheet14.xml",
-        "xl/worksheets/sheet15.xml",
-        "xl/worksheets/sheet9.xml",
-    ):
-        with zipfile.ZipFile(OUT_BOOK) as book:
+    with zipfile.ZipFile(OUT_BOOK) as book:
+        workbook_xml = book.read("xl/workbook.xml")
+        if b"FrontNode_Charts" in workbook_xml or b"FrontNode_Site" not in workbook_xml:
+            raise SystemExit("Workbook sheet list is missing FrontNode_Site or still has FrontNode_Charts")
+        sheet4_out = book.read("xl/worksheets/sheet4.xml")
+        first_anchor = chart_rows[charts[0]["site"]]
+        if f"'{SNAP_SHEET}'!A{first_anchor}".encode() not in book.read("xl/worksheets/sheet1.xml"):
+            raise SystemExit("Dashboard does not open the hourly chart sheet")
+        if f"'{SNAP_SHEET}'!A{first_anchor}".encode() not in book.read("xl/worksheets/sheet14.xml"):
+            raise SystemExit("FrontNode_Site does not open the hourly chart sheet")
+        if b">Front Node<" not in sheet4_out:
+            raise SystemExit("Hourly chart sheet has no Front Node block")
+        chart_name = f"xl/charts/chart{1599 + len(charts)}.xml"
+        if chart_name not in book.namelist():
+            raise SystemExit(f"Missing {chart_name}")
+        for name in (
+            "xl/worksheets/sheet1.xml",
+            "xl/worksheets/sheet14.xml",
+            "xl/worksheets/sheet9.xml",
+        ):
             ET.fromstring(book.read(name))
     print(f"Workbook {OUT_BOOK.name} {OUT_BOOK.stat().st_size / 1e6:.1f} MB", flush=True)
 
