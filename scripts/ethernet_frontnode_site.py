@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Add the vendor EthernetPort counter to the current Ericsson workbook.
 
-The 30 Oct–1 Nov radio sheets stay as they are. This reads `EthernetPort File_*.rar`
-(5–7 Nov 2026) and writes them in the same shape as the Site Level dashboard:
+The 30 Oct–1 Nov radio sheets stay as they are. This reads the EthernetPort files
+for 30 Oct–1 Nov 2026 and writes them in the same shape as the Site Level dashboard:
 
 * a Front Node Site section at the bottom of Dashboard
 * sheet FrontNode_Site
@@ -10,9 +10,9 @@ The 30 Oct–1 Nov radio sheets stay as they are. This reads `EthernetPort File_
 * the chart page FrontNode tab
 * GeoPlot HTML and hidden _GeoData, with the same worst-grade rule
 
-Site Name = the first 7 characters of NE Name. Each site-hour is the MAX of
-In Throughput (Mbps) across every row for that site and hour. Front Node is
-the NE whose own maximum is the highest. The scored trace is that hourly maximum.
+Site Name = the first 7 characters of NE Name. A reading above 1000 Mbps is an
+outlier. The site-hour is the MAX of the remaining rows. Front Node is the NE
+whose own maximum of those remaining rows is the highest.
 """
 
 from __future__ import annotations
@@ -43,7 +43,13 @@ from geoplot_satellite import (  # noqa: E402
 )
 
 BASE_VERSION = "v39"
-REPORT_VERSION = "v41"
+REPORT_VERSION = "v42"
+TX_MAX_MBPS = 1000.0
+ETHERNET_FILES = (
+    "EthernetPort File_1_30Oct.rar",
+    "EthernetPort File_1_31Oct.rar",
+    "EthernetPort File_1_01Nov.rar",
+)
 BASE_BOOK = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{BASE_VERSION}.xlsx"
 OUT_BOOK = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
 CHARTS_HTML = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
@@ -53,7 +59,7 @@ EXTRACT_DIR = Path("/tmp/ethernet_frontnode")
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 GEO_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3, "Decision": 4}
 CHART_COLS = 7
-PERIOD = "05 Nov 2026 – 07 Nov 2026"
+PERIOD = "30 Oct 2026 – 01 Nov 2026"
 SNAP_SHEET = "2. HourlyChartOfIssueSites"
 S_CHART_BANNER, S_CHART_LABEL, S_CHART_VALUE, S_CHART_TAG, S_CHART_AXIS = "49", "50", "51", "52", "70"
 
@@ -94,7 +100,7 @@ def xml_text(value: object) -> str:
 def c_str(ref: str, style: str, text: object) -> str:
     return (
         f'<c r="{ref}" s="{style}" t="inlineStr"><is><t xml:space="preserve">'
-        f"{xml_text(text)}</t></is></c>"
+        f"{xml_text(text).replace(chr(10), '&#10;')}</t></is></c>"
     )
 
 
@@ -134,9 +140,10 @@ def finite(value: object) -> float | None:
 
 def extract_csvs() -> list[Path]:
     EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
-    archives = sorted(ROOT.glob("EthernetPort File_*.rar"))
-    if not archives:
-        raise SystemExit("No EthernetPort File_*.rar files in the repo")
+    archives = [ROOT / name for name in ETHERNET_FILES]
+    missing = [path.name for path in archives if not path.exists()]
+    if missing:
+        raise SystemExit("Missing EthernetPort files: " + ", ".join(missing))
     paths = []
     for archive in archives:
         dest = EXTRACT_DIR / (archive.stem + ".csv")
@@ -157,8 +164,9 @@ def extract_csvs() -> list[Path]:
 def load_ethernet() -> tuple[pd.DataFrame, dict[str, tuple[str, float]], int]:
     """Hourly site maximum, and the front node of each site.
 
-    Site Name is the first 7 characters of NE Name. The site-hour value is the
-    maximum In Throughput (Mbps) among every row for that site and hour.
+    Site Name is the first 7 characters of NE Name. A row above 1000 Mbps is an
+    outlier and is dropped. The site-hour value is the maximum of the rows that
+    remain.
     """
     frames = []
     for path in extract_csvs():
@@ -179,14 +187,23 @@ def load_ethernet() -> tuple[pd.DataFrame, dict[str, tuple[str, float]], int]:
     raw["Hour"] = raw["Hour"].astype(int)
     sample = raw.loc[
         (raw["Site Name"] == "BBAKD01")
-        & (raw["Date"].dt.month == 11)
-        & (raw["Date"].dt.day == 5)
+        & (raw["Date"].dt.month == 10)
+        & (raw["Date"].dt.day == 30)
         & (raw["Hour"] == 0),
         "Rx",
     ]
-    if sample.empty or abs(float(sample.max()) - 979.9746635) > 1e-6:
-        raise SystemExit(f"BBAKD01 5 Nov hour 0 max is {sample.max() if len(sample) else 'missing'}")
-    print(f"  BBAKD01 5 Nov 00:00 max = {float(sample.max()):.7f} from {len(sample)} rows", flush=True)
+    kept = sample[sample <= TX_MAX_MBPS]
+    if sample.empty or abs(float(sample.max()) - 176171.3872) > 0.01 or abs(float(kept.max()) - 980.3098673) > 1e-4:
+        raise SystemExit(
+            f"BBAKD01 30 Oct hour 0 raw max {sample.max() if len(sample) else 'missing'}, "
+            f"kept max {kept.max() if len(kept) else 'missing'}"
+        )
+    print(
+        f"  BBAKD01 30 Oct 00:00 kept max = {float(kept.max()):.7f} "
+        f"from {len(kept)} rows; dropped {int((sample > TX_MAX_MBPS).sum())} row above {TX_MAX_MBPS:.0f}",
+        flush=True,
+    )
+    raw = raw.loc[raw["Rx"] <= TX_MAX_MBPS]
     ne_peak = raw.groupby(["Site Name", "NE Name"], as_index=False)["Rx"].max()
     front: dict[str, tuple[str, float]] = {}
     for site, group in ne_peak.groupby("Site Name", sort=False):
@@ -233,6 +250,42 @@ def load_bh_flags() -> dict[str, list[str | None]]:
         ]
     book.close()
     return flags
+
+
+OSS_SIDE_COLS = (
+    36, 37, 38, 39, 40,
+    48, 49, 50, 51, 52,
+    60, 61, 62, 63, 64,
+    72, 73, 74, 75, 76,
+)
+OSS_SIDE_GROUPS = (
+    ("4H\n(Data Busy hour)", "37", "55", "56"),
+    ("4H\n(User Busy Hour)", "38", "60", "61"),
+    ("1H\n(Data Busy hour)", "39", "64", "65"),
+    ("1H\n(User Busy Hour)", "40", "66", "67"),
+)
+OSS_SIDE_NAMES = (
+    "DL Throughput 4h (Mbps)", "DLPRBUtilization,%", "Data Volume 4h (GB)", "Max User 4h", "Mean User 4H",
+    "DL Throughput 4h (Mbps)", "DLPRBUtilization,%", "Data Volume 4h (GB)", "Max User 4h", "Mean User 4H",
+    "DL Throughput 1h (Mbps)", "DLPRBUtilization,%", "Data Volume 1h (GB)", "Max User 1h", "Mean User 1H",
+    "DL Throughput 1h (Mbps)", "DLPRBUtilization,%", "Data Volume 1h (GB)", "Max User 1h", "Mean User 1H",
+)
+
+
+def load_oss_chart() -> dict[str, list[float | None]]:
+    """4H and 1H OSS values for the chart side table, in radio-chart order."""
+    from openpyxl import load_workbook
+
+    book = load_workbook(BASE_BOOK, read_only=True, data_only=True)
+    ws = book["URGENTBWINC_BusyHour"]
+    values: dict[str, list[float | None]] = {}
+    for row in ws.iter_rows(min_row=6, values_only=True):
+        site = str(row[1] or "").strip()
+        if not site:
+            continue
+        values[site] = [finite(row[col]) if col < len(row) else None for col in OSS_SIDE_COLS]
+    book.close()
+    return values
 
 
 def load_bands() -> dict[str, str]:
@@ -382,12 +435,12 @@ def dashboard_block(start: int, records, summary, charts, n_sites: int, chart_ro
     add_span(
         120,
         S_NOTE,
-        "Vendor counter In Throughput (Mbps), from EthernetPort File_, window 5 Nov 2026 – 7 Nov 2026. "
-        "The radio sheets above stay on 30 Oct 2026 – 1 Nov 2026. "
+        "Vendor counter In Throughput (Mbps), from EthernetPort File_, window 30 Oct 2026 – 1 Nov 2026. "
+        "The same window as the radio sheets and the OSS KPI. "
         "Site Name is the first 7 characters of NE Name. "
-        "Each hour, Tx usage is the maximum In Throughput (Mbps) among every row for that site and hour, "
-        "every NE and every EthernetPort. "
-        "BBAKD01 at 00:00 on 5 Nov is 979.9746635, the highest of its 14 rows. "
+        "A reading above 1000 Mbps is an outlier and is dropped. "
+        "Each hour, Tx usage is the maximum In Throughput (Mbps) among the remaining rows for that site and hour. "
+        "BBAKD01 at 00:00 on 30 Oct drops one row of 176,171.39 Mbps. The site hour is 980.3098673. "
         "License is the SUM of dlBbCapacityNet for every NodeId with that Site Name. UL is not used. "
         "Front Node is the NE Name whose own maximum In Throughput is the highest. "
         "The scored trace is that hourly maximum, with the same floors as Site Level. "
@@ -669,7 +722,8 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
     rels: list[tuple[str, str]] = []
     r = 1
     intro = (
-        "5 Nov 2026 – 7 Nov 2026. These rows are the sites on the Front Node Site Dashboard. "
+        f"{PERIOD}. These rows are the sites on the Front Node Site Dashboard. "
+        "A reading above 1000 Mbps is dropped before the hourly maximum. "
         "Site Name is the first 7 characters of NE Name. "
         "Each hour is the maximum In Throughput (Mbps) among every row for that site and hour. "
         "License is the SUM of dlBbCapacityNet. The floors match Site Level. "
@@ -685,7 +739,7 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
     rows.append(xml)
     merges.append(ref)
     r += 1
-    xml, ref = span(r, 18, S_SUB, "EthernetPort File_    ·    5 Nov 2026 – 7 Nov 2026    ·    In Throughput (Mbps)", 24)
+    xml, ref = span(r, 18, S_SUB, f"EthernetPort File_    ·    {PERIOD}    ·    In Throughput (Mbps)", 24)
     rows.append(xml)
     merges.append(ref)
     r += 1
@@ -766,7 +820,7 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
         tab="FFC65911",
         dimension=f"A1:U{last}",
         cols=f"<cols>{cols}</cols>",
-        header="&amp;L&amp;8&amp;K1F4E79Front Node Site&amp;R&amp;8Transmission Link Health Review  |  Ericsson  |  5 Nov 2026 – 7 Nov 2026",
+        header="&amp;L&amp;8&amp;K1F4E79Front Node Site&amp;R&amp;8Transmission Link Health Review  |  Ericsson  |  30 Oct 2026 – 01 Nov 2026",
         footer="&amp;L&amp;8Each hour is the maximum In Throughput (Mbps)&amp;R&amp;8Page &amp;P of &amp;N",
         freeze=header_row,
     )
@@ -797,7 +851,32 @@ def _num_cell(ref: str, value: float) -> str:
     return f'<c r="{ref}"><v>{value:.10g}</v></c>'
 
 
-def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_rels: bytes, content_types: bytes, charts: list[dict], work: pd.DataFrame):
+def _oss_side_cells(excel_top: int, values: list[float | None]) -> tuple[dict[int, list[str]], list[str]]:
+    """Busy Hour / KPI / Value block in columns M–O, matching the radio charts."""
+    cells: dict[int, list[str]] = {}
+    merges: list[str] = []
+    header = excel_top + 4
+    cells[header] = [
+        c_str(f"M{header}", "53", "Busy Hour"),
+        c_str(f"N{header}", "53", "KPI"),
+        c_str(f"O{header}", "53", "Value"),
+    ]
+    for group, (label, hour_style, name_style, value_style) in enumerate(OSS_SIDE_GROUPS):
+        first = excel_top + 5 + group * 5
+        merges.append(f"M{first}:M{first + 4}")
+        for offset in range(5):
+            row = first + offset
+            index = group * 5 + offset
+            hour_cell = c_str(f"M{row}", hour_style, label) if offset == 0 else c_blank(f"M{row}", hour_style)
+            cells[row] = [
+                hour_cell,
+                c_str(f"N{row}", name_style, OSS_SIDE_NAMES[index]),
+                c_num(f"O{row}", value_style, values[index]),
+            ]
+    return cells, merges
+
+
+def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_rels: bytes, content_types: bytes, charts: list[dict], work: pd.DataFrame, oss_chart: dict[str, list[float | None]]):
     """Append one Excel line chart per Front Node site onto the existing hourly-chart sheet."""
     import io
     import xlsxwriter
@@ -955,12 +1034,21 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
             merges.append(f"{col_name(col)}{excel_top + 2}:{col_name(col + 1)}{excel_top + 2}")
         tag_cells = [c_str(f"A{excel_top + 3}", S_CHART_TAG, "Front Node")]
         tag_cells += [c_blank(f"{col_name(col)}{excel_top + 3}", S_CHART_TAG) for col in range(1, 3)]
+        side_cells, side_merges = _oss_side_cells(
+            excel_top, oss_chart.get(item["site"], [None] * len(OSS_SIDE_NAMES))
+        )
+        merges.extend(side_merges)
         block_rows.append(row_xml(excel_top, 26.25, banner_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
         block_rows.append(row_xml(excel_top + 1, 15.75, label_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
         block_rows.append(row_xml(excel_top + 2, 20.25, value_cells, 7).replace('spans="1:8"', 'spans="1:23"', 1))
         block_rows.append(row_xml(excel_top + 3, 18, tag_cells, 2).replace('spans="1:3"', 'spans="1:23"', 1))
         for offset in range(4, fcc.BLOCK_ROWS):
-            block_rows.append(f'<row r="{excel_top + offset}" spans="1:23" ht="15.75" customHeight="1"/>')
+            row_no = excel_top + offset
+            extra = side_cells.get(row_no)
+            if extra:
+                block_rows.append(row_xml(row_no, 15.75, extra, 14).replace('spans="1:15"', 'spans="1:23"', 1))
+            else:
+                block_rows.append(f'<row r="{row_no}" spans="1:23" ht="15.75" customHeight="1"/>')
         merges.append(f"A{excel_top}:H{excel_top}")
         merges.append(f"A{excel_top + 3}:C{excel_top + 3}")
         chart_no = g + 1
@@ -1176,11 +1264,10 @@ def front_tab(charts, work, front, bands, tech, types, summary) -> dict:
         "bandLabel": "Band",
         "listTitle": "FrontNode_Site",
         "search": "Search site, front node, severity",
-        "hint": "Each chart is one site. In Throughput is the maximum of every row for that site and hour, 5–7 Nov 2026. The lines are In Throughput, Peak, and Below5%Peak.",
+        "hint": "Each chart is one site. In Throughput is the maximum row at or below 1000 Mbps for that site and hour, 30 Oct–1 Nov 2026. The lines are In Throughput, Peak, and Below5%Peak.",
         "noun": "issue sites",
-        "period": "05 Nov 2026 – 07 Nov 2026",
+        "period": PERIOD,
         "rxName": "In Throughput (Mbps)",
-        "showOss": False,
         "filters": ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "All Sites"],
         "labels": labels,
         "sites": sites,
@@ -1265,7 +1352,7 @@ def write_geo_html(rows: list[dict], tech_by_code: dict[str, str]) -> None:
     text = text.replace(
         "Severity map: bright red Severe / deep red High / muted amber Moderate / calm green Low / blue Decision</p>",
         "Severity map: bright red Severe / deep red High / muted amber Moderate / calm green Low / blue Decision. "
-        "Issue dots include the 30 Oct–1 Nov radio lists and the Front Node sites for 5–7 Nov 2026. "
+        "Issue dots include the 30 Oct–1 Nov radio lists and the Front Node sites for the same window. "
         "A FrontNode_Site Map link opens this page on that site.</p>",
         1,
     )
@@ -1299,6 +1386,8 @@ def main() -> None:
     print(f"Sites: {n_tn_sites:,}  ·  site-hours: {len(site_hour):,}", flush=True)
     work, records, summary, charts = score(site_hour)
     peak_max = float(np.nanmax(work["Rx"])) if len(work) else 0
+    if peak_max > TX_MAX_MBPS:
+        raise SystemExit(f"A site hour is still above {TX_MAX_MBPS:.0f} Mbps: {peak_max}")
     print(
         f"Scored {work['eNodeB Name'].nunique():,}  ·  peak-ratio listed {len(records):,}  ·  "
         f"charts {len(charts):,}  ·  license listed {len(summary['records']):,}  ·  max peak {peak_max:.1f}",
@@ -1312,6 +1401,9 @@ def main() -> None:
     bh_flags = load_bh_flags()
     matched = sum(1 for item in charts if item["site"] in bh_flags)
     print(f"BH Flag 1H rows {len(bh_flags):,}  ·  matched to FrontNode_Site {matched:,} of {len(charts):,}", flush=True)
+    oss_chart = load_oss_chart()
+    oss_matched = sum(1 for item in charts if item["site"] in oss_chart)
+    print(f"OSS chart block matched {oss_matched:,} of {len(charts):,}", flush=True)
     _geo, tech, types = pt.load_physical()
     print(f"Reading the {BASE_VERSION} workbook shell...", flush=True)
     with zipfile.ZipFile(BASE_BOOK) as book:
@@ -1328,8 +1420,8 @@ def main() -> None:
         sheet5 = book.read("xl/worksheets/sheet5.xml")
         drawing = book.read("xl/drawings/drawing1.xml")
         drawing_rels = book.read("xl/drawings/_rels/drawing1.xml.rels")
-    sheet4, sheet5, drawing, drawing_rels, content_types, chart_parts, chart_rows = append_hourly_charts(
-        sheet4, sheet5, drawing, drawing_rels, content_types, charts, work
+        sheet4, sheet5, drawing, drawing_rels, content_types, chart_parts, chart_rows = append_hourly_charts(
+        sheet4, sheet5, drawing, drawing_rels, content_types, charts, work, oss_chart
     )
     strings = shared_strings(strings_blob)
     geo_rows = read_geodata(geodata, strings)
@@ -1358,19 +1450,21 @@ def main() -> None:
         [
             (
                 "Files",
-                "EthernetPort File_1_05Nov.rar, EthernetPort File_1_06Nov.rar, EthernetPort File_1_07Nov.rar. "
+                "EthernetPort File_1_30Oct.rar, EthernetPort File_1_31Oct.rar, EthernetPort File_1_01Nov.rar. "
                 "Counter In Throughput (Mbps). The FEG, OSS, and license sheets are not rescored.",
             ),
             (
                 "Window",
-                "5 Nov 2026 – 7 Nov 2026, 72 hours. This is a different window from the radio report (30 Oct 2026 – 1 Nov 2026).",
+                "30 Oct 2026 – 1 Nov 2026, 72 hours. The same window as the radio report and the OSS KPI.",
             ),
             (
                 "Site hour",
                 "Site Name is the first 7 characters of NE Name. "
-                "Tx usage for a site and hour is the maximum In Throughput (Mbps) among every row of that site and hour, "
+                "A reading above 1000 Mbps is an outlier and is dropped. "
+                "Tx usage for a site and hour is the maximum In Throughput (Mbps) among the remaining rows, "
                 "every NE and every EthernetPort. "
-                "BBAKD01 at 00:00 on 5 Nov is 979.9746635, the highest of its 14 rows.",
+                "BBAKD01 at 00:00 on 30 Oct has 14 rows. One row is 176,171.39 Mbps and is dropped. "
+                "The site hour is 980.3098673.",
             ),
             (
                 "Front Node",
@@ -1401,7 +1495,9 @@ def main() -> None:
                 "30 Oct–1 Nov. Yes when either Data 1H or User 1H matches: "
                 "DL Throughput at or below 7 Mbps, Data Volume at least 50 GB, "
                 "DL Throughput at or below 5 Mbps, Data Volume at least 100 GB. "
-                "No when both values exist and neither matches. Blank when both are missing.",
+                "No when both values exist and neither matches. Blank when both are missing. "
+                "Each Front Node chart has the same OSS block as the radio charts, columns M to O: "
+                "4H and 1H Data Busy hour and User Busy hour.",
             ),
         ]
     )
@@ -1420,7 +1516,7 @@ def main() -> None:
         "The full site is plotted when any of its ERBS is an issue, when the Site Level Dashboard lists that site, "
         "or when the Front Node Site Dashboard lists that site. Severity is the worst grade of those findings. "
         "Medium is drawn as Moderate. Decision is the 10% to under 15% gap. "
-        "Front Node uses In Throughput (Mbps) for 5–7 Nov 2026. "
+        "Front Node uses In Throughput (Mbps) for 30 Oct–1 Nov 2026. Readings above 1000 Mbps are dropped. "
         "The pictures on this sheet remain the 30 Oct–1 Nov radio maps. "
         "The GeoPlot HTML and _GeoData include the Front Node sites."
     )
@@ -1516,6 +1612,9 @@ def main() -> None:
             raise SystemExit("FrontNode_Site does not open the hourly chart sheet")
         if b">Front Node<" not in sheet4_out:
             raise SystemExit("Hourly chart sheet has no Front Node block")
+        oss_header = chart_rows[charts[0]["site"]] + 4
+        if f'r="M{oss_header}"'.encode() not in sheet4_out or b"Busy Hour" not in sheet4_out:
+            raise SystemExit("Front Node chart is missing the OSS KPI block")
         front_sheet = book.read("xl/worksheets/sheet14.xml")
         if b">Yes<" not in front_sheet:
             raise SystemExit("BH Flag 1H is still blank on FrontNode_Site")

@@ -1,10 +1,24 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v41.** The section [Current Ericsson report — v41](#current-ericsson-report--v41) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v41 wins.
+**Current report is v42.** The section [Current Ericsson report — v42](#current-ericsson-report--v42) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v42 wins.
 
 Each later update of this report uses the next version name. The workbook, the chart page, the GeoPlot file, and the title inside them move together. A later change is not published under the previous version name.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v41.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v41_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v41_GeoPlot.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v42.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v42_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v42_GeoPlot.html`.
+
+## Current Ericsson report — v42
+
+v42 keeps the v41 Front Node rules and changes the window and the hourly maximum.
+
+The EthernetPort files are `EthernetPort File_1_30Oct.rar`, `EthernetPort File_1_31Oct.rar`, and `EthernetPort File_1_01Nov.rar`. The window is **30 Oct 2026 – 1 Nov 2026**, the same window as the radio report and the OSS KPI.
+
+A reading above 1000 Mbps is an outlier and is dropped. Tx capacity is not more than 1000 Mbps. The site hour is the maximum of the remaining rows. `BBAKD01` at 00:00 on 30 Oct has 14 rows. One row is 176,171.39 Mbps and is dropped. The site hour is 980.3098673. Front Node is the NE whose own maximum of the remaining rows is the highest.
+
+Each Front Node chart on `2. HourlyChartOfIssueSites` has the OSS block in columns M–O, the same Busy Hour / KPI / Value table as the radio charts: 4H and 1H, Data Busy hour and User Busy hour. The FrontNode tab of the chart page shows the 1H OSS panels.
+
+`FrontNode_Site` still does not show License (Mbps) or the 85% columns. The Front Node chart lines are still In Throughput, Peak, and Below5%Peak. The radio sheets are not rescored.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes v42.
 
 ## Current Ericsson report — v41
 
