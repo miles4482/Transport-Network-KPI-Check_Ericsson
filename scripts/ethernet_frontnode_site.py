@@ -42,11 +42,13 @@ from geoplot_satellite import (  # noqa: E402
     thana_focus_specs,
 )
 
-BASE_BOOK = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v39.xlsx"
-OUT_BOOK = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40.xlsx"
-CHARTS_HTML = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.html"
-CHARTS_ZIP = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.zip"
-GEOPLOT_HTML = ROOT / "FEGE_Choked_Flat_Sites_Ericsson_v40_GeoPlot.html"
+BASE_VERSION = "v39"
+REPORT_VERSION = "v41"
+BASE_BOOK = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{BASE_VERSION}.xlsx"
+OUT_BOOK = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}.xlsx"
+CHARTS_HTML = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.html"
+CHARTS_ZIP = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_Charts.zip"
+GEOPLOT_HTML = ROOT / f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}_GeoPlot.html"
 EXTRACT_DIR = Path("/tmp/ethernet_frontnode")
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 GEO_RANK = {"Severe": 0, "High": 1, "Moderate": 2, "Low": 3, "Decision": 4}
@@ -1311,7 +1313,7 @@ def main() -> None:
     matched = sum(1 for item in charts if item["site"] in bh_flags)
     print(f"BH Flag 1H rows {len(bh_flags):,}  ·  matched to FrontNode_Site {matched:,} of {len(charts):,}", flush=True)
     _geo, tech, types = pt.load_physical()
-    print("Reading the v39 workbook shell...", flush=True)
+    print(f"Reading the {BASE_VERSION} workbook shell...", flush=True)
     with zipfile.ZipFile(BASE_BOOK) as book:
         dashboard = book.read("xl/worksheets/sheet1.xml")
         method = book.read("xl/worksheets/sheet7.xml")
@@ -1455,9 +1457,12 @@ def main() -> None:
         b"No. starts at 1 on the Site Level charts and continues on the ERBS charts. "
         b"Front Node numbers start again at 1. Those charts follow the radio charts on 2. HourlyChartOfIssueSites.",
     )
-    strings_blob = strings_blob.replace(b"FEGE_Choked_Flat_Sites_Ericsson_v39", b"FEGE_Choked_Flat_Sites_Ericsson_v40")
-    strings_blob = strings_blob.replace(b"Excel v39", b"Excel v40")
-    strings_blob = strings_blob.replace(b"v39    ", b"v40    ")
+    strings_blob = strings_blob.replace(
+        f"FEGE_Choked_Flat_Sites_Ericsson_{BASE_VERSION}".encode(),
+        f"FEGE_Choked_Flat_Sites_Ericsson_{REPORT_VERSION}".encode(),
+    )
+    strings_blob = strings_blob.replace(f"Excel {BASE_VERSION}".encode(), f"Excel {REPORT_VERSION}".encode())
+    strings_blob = strings_blob.replace(f"{BASE_VERSION}    ".encode(), f"{REPORT_VERSION}    ".encode())
 
     site_xml, site_rels, _first, _last = site_sheet(charts, front, bands, tech, types, chart_rows, bh_flags)
     workbook = workbook.replace(
@@ -1478,7 +1483,7 @@ def main() -> None:
         b"</Types>",
         1,
     )
-    print("Writing v40 workbook...", flush=True)
+    print(f"Writing {REPORT_VERSION} workbook...", flush=True)
     patch_zip(
         {
             "xl/worksheets/sheet1.xml": dashboard,
@@ -1531,10 +1536,10 @@ def main() -> None:
     print(f"Workbook {OUT_BOOK.name} {OUT_BOOK.stat().st_size / 1e6:.1f} MB", flush=True)
 
     print("Building the chart page...", flush=True)
-    charts_html.EXCEL_VERSION = "v40"
-    charts_html.HTML_VERSION = "40"
+    charts_html.EXCEL_VERSION = REPORT_VERSION
+    charts_html.HTML_VERSION = REPORT_VERSION.lstrip("v")
     view = charts_html.load_chart_view(OUT_BOOK)
-    view["htmlVersion"] = "40"
+    view["htmlVersion"] = REPORT_VERSION.lstrip("v")
     view["oss"] = charts_html.load_oss_1h(OUT_BOOK)
     charts_html.add_all_sites(view, ROOT / "FEG_KPI_Eric.xlsb", ROOT / pt.LICENSE_FILE, ROOT / pt.GEO_FILE)
     charts_html.attach_hup(view, OUT_BOOK)

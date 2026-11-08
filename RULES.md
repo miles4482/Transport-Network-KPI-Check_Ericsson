@@ -1,10 +1,20 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v40.** The section [Current Ericsson report — v40](#current-ericsson-report--v40) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v40 wins.
+**Current report is v41.** The section [Current Ericsson report — v41](#current-ericsson-report--v41) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v41 wins.
 
 Each later update of this report uses the next version name. The workbook, the chart page, the GeoPlot file, and the title inside them move together. A later change is not published under the previous version name.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v40.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v40_GeoPlot.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v41.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v41_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v41_GeoPlot.html`.
+
+## Current Ericsson report — v41
+
+v41 is the v40 Front Node report with the license lines taken off `FrontNode_Site` and off the Front Node charts. The radio sheets, the site list, and the grades are the same as v40.
+
+`FrontNode_Site` does not show License (Mbps), Hours ≥85%, Share of hours, or Where ≥85%. Gap (%) stays. Each Front Node chart on `2. HourlyChartOfIssueSites`, and the FrontNode tab, draws In Throughput (Mbps), Peak, and Below5%Peak. License and 85% of license are not drawn there. The radio charts still draw those two lines. The Dashboard license sections stay.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes v41. `REPORT_VERSION` in that script is the version name of the files it writes.
+
+The Front Node scoring rules are the v40 section below.
 
 ## Current Ericsson report — v40
 
@@ -32,11 +42,9 @@ Front Node Site Dashboard is the last section on `Dashboard`, after the ERBS Das
 
 `FrontNode_Site` sits after `1. Site List_ERBS`. The site name opens that site's chart on `2. HourlyChartOfIssueSites`. The Map column opens the GeoPlot HTML on that site.
 
-The Front Node charts are appended after the radio charts on `2. HourlyChartOfIssueSites`. Each block shows Peak and Below5%Peak, then the line chart. The lines are In Throughput (Mbps), Peak, and Below5%Peak. License and 85% of license are not drawn. The tag on the block says Front Node.
+The Front Node charts are appended after the radio charts on `2. HourlyChartOfIssueSites`. Each block has the same banner, Peak, Below5%Peak, license, 85% of license, and the line chart. The tag on the block says Front Node. The line is In Throughput (Mbps).
 
-`FrontNode_Site` does not show License (Mbps), Hours ≥85%, Share of hours, or Where ≥85%. Gap (%) stays. The Dashboard license sections stay.
-
-The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The lines are In Throughput (Mbps), Peak, and Below5%Peak. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
+The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The line is In Throughput (Mbps), plus Peak, Below5%Peak, the site license, and 85% of license. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
 
 GeoPlot draws a site when any ERBS is an issue, when Site Level lists it, or when Front Node Site lists it. Severity is the worst grade. Medium is drawn as Moderate. This adds 189 issue sites and makes 17 existing grades worse. `CMCDGF2`, `CXUKH1M`, `CXUKH1R`, and `LXRPR88` have no latitude and longitude, so they are not drawn. The pictures on sheet `5. GeoPlot` stay the 30 Oct–1 Nov radio maps. The GeoPlot HTML and `_GeoData` include the Front Node sites. A FrontNode_Site Map link opens the HTML on that site.
 
