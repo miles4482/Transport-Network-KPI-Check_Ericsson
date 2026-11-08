@@ -1,10 +1,41 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v39.** The section [Current Ericsson report — v39](#current-ericsson-report--v39) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v39 was built from. Where they disagree, v39 wins.
+**Current report is v40.** The section [Current Ericsson report — v40](#current-ericsson-report--v40) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v40 wins.
 
 Each later update of this report uses the next version name. The workbook, the chart page, the GeoPlot file, and the title inside them move together. A later change is not published under the previous version name.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v39.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v39_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v40.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v40_GeoPlot.html`.
+
+## Current Ericsson report — v40
+
+v40 keeps the v39 radio workbook as it was and adds the vendor counter `In Throughput (Mbps)` from `EthernetPort File_1_05Nov.rar`, `EthernetPort File_1_06Nov.rar`, and `EthernetPort File_1_07Nov.rar`. That window is **5 Nov 2026 – 7 Nov 2026**. The FEG, OSS, license, ActionPlan, HUP_usage, and Immediate actions sheets are not rescored.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes the new sections into v40.
+
+### Front Node Site
+
+Same floors as Site Level. A site needs at least 24 hourly samples and a Peak of at least 20 Mbit/s.
+
+- Site hour = the SUM of `In Throughput (Mbps)` on EthernetPort names that start with `TN_` and do not start with `TN_IDL`, for every NE of that Site Name, on that date and hour. `TN_IDL` is the link between nodes. `auto_` and `RiPort` rows are not added.
+- Front Node = the NE Name at that site whose own transport-port peak is the highest. The grade uses the site sum, not that NE alone.
+- License = the SUM of `dlBbCapacityNet` for every NodeId with that Site Name. UL is not used.
+- Tx Flat/Chocked, Peak Touch, and License usage use the Site Level floors. A site is written once. License-only names follow the peak-ratio names.
+
+This window: 6,561 sites checked, max peak 1,618.6 Mbps. Tx Flat/Chocked 154 (Severe 143, High 10, Medium 1). Peak Touch 5, all Low. License usage lists 8 sites; 2 of those are already in Tx Flat/Chocked, so `FrontNode_Site` has **165** rows (154 + 5 + 6).
+
+BH Flag 1H is blank. The OSS files are 30 Oct–1 Nov, not this window. Band is copied from `1. Site List_SiteLevel` when that site is listed there. Otherwise Band is blank.
+
+### Where it is written
+
+Front Node Site Dashboard is the last section on `Dashboard`, after the ERBS Dashboard. It has the same tiles, category summary, severity sections, and license sections. No. starts again at 1.
+
+`FrontNode_Site` sits after `1. Site List_ERBS`. The site name opens `FrontNode_Charts`. The Map column opens the GeoPlot HTML on that site.
+
+`FrontNode_Charts` is one block per site. The block title opens `FEGE_Choked_Flat_Sites_Ericsson_v40_Charts.html#FrontNode/<site>`.
+
+The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The line is In Throughput (Mbps), plus Peak, Below5%Peak, the site license, and 85% of license. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
+
+GeoPlot draws a site when any ERBS is an issue, when Site Level lists it, or when Front Node Site lists it. Severity is the worst grade. Medium is drawn as Moderate. This adds 126 issue sites and makes 11 existing grades worse. `CMCDGF2`, `CXUKH1M`, and `LXRPR88` have no latitude and longitude, so they are not drawn. The pictures on sheet `5. GeoPlot` stay the 30 Oct–1 Nov radio maps. The GeoPlot HTML and `_GeoData` include the Front Node sites. A FrontNode_Site Map link opens the HTML on that site.
 
 ## Current Ericsson report — v39
 
