@@ -16,8 +16,8 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 EXCEL_EPOCH = datetime(1899, 12, 30)
-HTML_VERSION = "39"
-EXCEL_VERSION = "v39"
+HTML_VERSION = "42"
+EXCEL_VERSION = "v42"
 # Band sits after Site Type, so every later Site List column is one place to the right of v22.
 COL_N = 0
 COL_NAME = 1
@@ -516,6 +516,7 @@ HTML = r"""<!DOCTYPE html>
   }
   .tabbar button.tab-ERBS { background: #1F4E79; }
   .tabbar button.tab-SiteLevel { background: #0E7490; }
+  .tabbar button.tab-FrontNode { background: #C65911; }
   .tabbar button.tab.on { box-shadow: inset 0 -4px 0 #fff; }
   .tabbar button.tab:not(.on) { filter: brightness(0.72); }
   aside {
@@ -654,10 +655,18 @@ HTML = r"""<!DOCTYPE html>
 <script>
 const VIEW = __DATA__;
 const EXCEL_VERSION = "__EXCEL_VERSION__";
-const TAB_IDS = ["ERBS", "SiteLevel"];
+const TAB_IDS = ["ERBS", "SiteLevel", "FrontNode"].filter(id => VIEW.tabs[id]);
 let tabId = "ERBS";
+function axisLabels() {
+  const own = tab().labels;
+  return own && own.length ? own : VIEW.labels;
+}
 function tab() { return VIEW.tabs[tabId]; }
 function sites() { return tab().sites; }
+function chartSeries() {
+  if (tabId === "FrontNode") return SERIES.filter(spec => spec.key !== "license" && spec.key !== "threshold");
+  return SERIES;
+}
 const SERIES = [
   { key: "rx", name: "Max DL Capacity Usage (Mbps)", color: "#5B9BD5", dash: false },
   { key: "peak", name: "Peak", color: "#C00000", dash: true },
@@ -673,6 +682,7 @@ let shown = [];
 const ROW_H = 32;
 const filters = ["All", "Tx Flat/Chocked", "Peak Touch", "License usage", "HUP usage", "All Sites"];
 function tabFilters() {
+  if (tab().filters) return tab().filters;
   return tabId === "ERBS" ? filters : filters.filter(name => name !== "HUP usage");
 }
 
@@ -690,7 +700,7 @@ function visible() {
       if (!site.listed) return false;
     } else if (!site.listed || primary(site) !== filter) return false;
     if (!q) return true;
-    return [site.site, site.tech, site.siteType, site.band, site.category, site.severity, String(site.n || "")]
+    return [site.site, site.frontNode || "", site.tech, site.siteType, site.band, site.category, site.severity, String(site.n || "")]
       .join(" ").toLowerCase().includes(q);
   });
   if (filter === "All Sites") rows.sort((a, b) => a.site.localeCompare(b.site));
@@ -743,9 +753,9 @@ function draw() {
   const plotW = width - pad.l - pad.r;
   const plotH = height - pad.t - pad.b;
   const packed = [];
-  SERIES.forEach(spec => { if (on[spec.key]) packed.push(...lineValues(site, spec.key)); });
+  chartSeries().forEach(spec => { if (on[spec.key]) packed.push(...lineValues(site, spec.key)); });
   const [yMax, yUnit] = yScale(packed);
-  const n = VIEW.labels.length;
+  const n = axisLabels().length;
   const xAt = i => pad.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
   const yAt = v => pad.t + plotH - (v / yMax) * plotH;
   ctx.strokeStyle = "#d9d9d9";
@@ -764,7 +774,7 @@ function draw() {
   const axisBottom = pad.t + plotH;
   ctx.strokeStyle = "#b0b0b0";
   ctx.beginPath();
-  VIEW.labels.forEach((label, i) => {
+  axisLabels().forEach((label, i) => {
     const x = xAt(i);
     ctx.moveTo(x, axisBottom);
     ctx.lineTo(x, axisBottom + 4);
@@ -774,7 +784,7 @@ function draw() {
   ctx.font = "8px Calibri, sans-serif";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  VIEW.labels.forEach((label, i) => {
+  axisLabels().forEach((label, i) => {
     const time = label.slice(label.lastIndexOf(" ") + 1);
     ctx.save();
     ctx.translate(xAt(i), axisBottom + 40);
@@ -786,9 +796,9 @@ function draw() {
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   let dayStart = 0;
-  VIEW.labels.forEach((label, i) => {
+  axisLabels().forEach((label, i) => {
     const date = label.slice(0, label.lastIndexOf(" "));
-    const next = VIEW.labels[i + 1];
+    const next = axisLabels()[i + 1];
     const nextDate = next ? next.slice(0, next.lastIndexOf(" ")) : "";
     if (date !== nextDate) {
       ctx.fillText(date, (xAt(dayStart) + xAt(i)) / 2, axisBottom + 46);
@@ -801,7 +811,7 @@ function draw() {
   ctx.lineTo(pad.l, pad.t + plotH);
   ctx.lineTo(width - pad.r, pad.t + plotH);
   ctx.stroke();
-  SERIES.forEach(spec => {
+  chartSeries().forEach(spec => {
     if (!on[spec.key]) return;
     const values = lineValues(site, spec.key);
     ctx.beginPath();
@@ -835,12 +845,12 @@ function showTip(event) {
   const i = Math.max(0, Math.min(geom.n - 1, Math.round((x - geom.pad.l) / geom.plotW * (geom.n - 1))));
   const site = sites()[current];
   if (!site) return;
-  const rows = SERIES.filter(spec => on[spec.key]).map(spec => {
+  const rows = chartSeries().filter(spec => on[spec.key]).map(spec => {
     const value = lineValues(site, spec.key)[i];
     const shown = value == null ? "—" : value.toFixed(2);
     return `<div style="color:${spec.color}">${spec.name}: ${shown}</div>`;
   }).join("");
-  tip.innerHTML = `<b>${VIEW.labels[i]}</b>${rows}`;
+  tip.innerHTML = `<b>${axisLabels()[i]}</b>${rows}`;
   tip.style.display = "block";
   const left = Math.min(x + 12, rect.width - 220);
   tip.style.left = Math.max(8, left) + "px";
@@ -848,6 +858,7 @@ function showTip(event) {
 }
 function legendName(spec, site) {
   const num = value => value == null || value === "" ? null : Number(value).toFixed(2);
+  if (spec.key === "rx") return tab().rxName || spec.name;
   if (spec.key === "peak" && num(site.peak)) return `Peak (${num(site.peak)} Mbit/s)`;
   if (spec.key === "level" && num(site.level)) return `Below5%Peak (${num(site.level)} Mbit/s)`;
   if (spec.key === "license" && num(site.license)) return `License (${num(site.license)} Mbps)`;
@@ -864,20 +875,28 @@ function renderChart() {
   document.getElementById("title").textContent = site.listed && site.n
     ? `${String(site.n).padStart(2, "0")}    ${site.site}`
     : site.site;
+  const period = tab().period || VIEW.period;
   document.getElementById("caption").textContent = site.listed
-    ? `${VIEW.period}    ·    ${site.category}    ·    ${site.severity}`
-    : `${VIEW.period}    ·    Not listed`;
+    ? `${period}    ·    ${site.category}    ·    ${site.severity}`
+    : `${period}    ·    Not listed`;
+  const frontKpis = site.frontNode
+    ? [kpi("Front Node", site.frontNode, ""), kpi("Front Node peak", site.frontPeak, "")]
+    : [];
+  const licenseKpis = tabId === "FrontNode" ? [] : [
+    kpi("License (Mbps)", site.license, ""),
+    kpi("85% of license", site.threshold, ""),
+  ];
   document.getElementById("kpis").innerHTML = [
     kpi("Peak (Mbit/s)", site.peak, ""),
     kpi("Below5%Peak (Mbit/s)", site.level, ""),
-    kpi("License (Mbps)", site.license, ""),
-    kpi("85% of license", site.threshold, ""),
+    ...licenseKpis,
     kpi("Gap (%)", site.gap, ""),
     kpi("Peak ratio (%)", site.ratio, ""),
     kpi("Where touched", site.where, ""),
     kpi("Tech", site.tech, ""),
     kpi("Site Type", site.siteType, ""),
-    kpi(tab().bandLabel, site.band, "")
+    kpi(tab().bandLabel, site.band, ""),
+    ...frontKpis
   ].join("");
   const ossNames = ["DL Throughput 1h (Mbps)", "DLPRBUtilization,%", "Data Volume 1h (GB)", "Max User 1h", "Mean User 1h"];
   const ossPair = (VIEW.oss || {})[site.site.slice(0, 7)];
@@ -886,12 +905,10 @@ function renderChart() {
     const rows = ossNames.map((name, i) => `<div class="oss-row"><span>${name}</span><b>${values[i] == null ? "—" : values[i]}</b></div>`).join("");
     return `<section class="oss-block"><h2 style="background:${color}">${title}</h2>${rows}</section>`;
   }
-  document.querySelectorAll("#legend .leg-name").forEach(node => {
-    const key = node.parentElement.querySelector("input").dataset.key;
-    const spec = SERIES.find(item => item.key === key);
-    node.textContent = legendName(spec, site);
-  });
-  document.getElementById("oss").innerHTML = [
+  document.getElementById("legend").innerHTML = chartSeries().map(spec => `
+  <label><input type="checkbox" data-key="${spec.key}" ${on[spec.key] === false ? "" : "checked"}>
+  <i class="swatch ${spec.dash ? "dash" : ""}" style="border-top-color:${spec.color}"></i><span class="leg-name">${legendName(spec, site)}</span></label>`).join("");
+  document.getElementById("oss").innerHTML = tab().showOss === false ? "" : [
     ossBlock("DataBusyHour (1 BusyHour)", "#6C3483", ossPair && ossPair[0]),
     ossBlock("UserBusyHour (1 BusyHour)", "#1A5276", ossPair && ossPair[1])
   ].join("");
@@ -993,10 +1010,10 @@ document.getElementById("legend").addEventListener("change", event => {
 });
 function updateChrome() {
   const issueCount = sites().filter(site => site.listed).length;
-  const noun = tabId === "ERBS" ? "issue ERBS" : "issue sites";
+  const noun = tab().noun || (tabId === "ERBS" ? "issue ERBS" : "issue sites");
   document.getElementById("listTitle").textContent = `${tab().listTitle} · Excel ${EXCEL_VERSION}`;
   document.getElementById("q").placeholder = tab().search;
-  document.getElementById("period").textContent = `${VIEW.period} · ${issueCount.toLocaleString()} ${noun} · All Sites ${sites().length.toLocaleString()}`;
+  document.getElementById("period").textContent = `${tab().period || VIEW.period} · ${issueCount.toLocaleString()} ${noun} · All Sites ${sites().length.toLocaleString()}`;
   document.getElementById("hint").textContent = tab().hint;
   document.getElementById("tabs").innerHTML = TAB_IDS.map(id => {
     const spec = VIEW.tabs[id];

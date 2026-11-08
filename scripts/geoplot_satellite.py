@@ -825,8 +825,10 @@ def render_html(rows: list[dict], zoom_specs: list[dict], dest: Path, title: str
       }}
       return c;
     }}
+    const MAPS = {{}};
     function makeMap(id, points, bounds, withLabels, national, severity, localSev) {{
       const map = L.map(id, {{ preferCanvas: true }});
+      MAPS[id] = map;
       L.tileLayer("https://mt1.google.com/vt/lyrs=s&x={{x}}&y={{y}}&z={{z}}", {{
         maxZoom: 20, attribution: "Google Satellite"
       }}).addTo(map);
@@ -907,6 +909,23 @@ def render_html(rows: list[dict], zoom_specs: list[dict], dest: Path, title: str
       makeMap("zoom" + i, points, bounds, true, false, false);
       makeMap("zoom" + i + "sev", points, bounds, true, false, true, sevCounts(points));
     }});
+    function openSite(code) {{
+      const point = DATA.points.find(item => item.site === code);
+      const map = MAPS.severity || MAPS.national;
+      if (!point || !map) return;
+      map.setView([point.lat, point.lon], 16);
+      L.popup().setLatLng([point.lat, point.lon]).setContent(
+        point.site + (point.severity ? " · " + point.severity : "")
+      ).openOn(map);
+      const block = document.getElementById("severity-block");
+      if (block) block.scrollIntoView();
+    }}
+    function siteFromHash() {{
+      const code = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+      if (code && code.indexOf("/") < 0) openSite(code);
+    }}
+    siteFromHash();
+    window.addEventListener("hashchange", siteFromHash);
   </script>
 </body>
 </html>

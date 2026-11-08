@@ -1,10 +1,66 @@
 # FEGE site choking rules — Ericsson
 
-**Current report is v39.** The section [Current Ericsson report — v39](#current-ericsson-report--v39) is the operative rule set for the Excel workbook and the chart page. Later sections are the history v39 was built from. Where they disagree, v39 wins.
+**Current report is v42.** The section [Current Ericsson report — v42](#current-ericsson-report--v42) is the operative rule set. The radio sheets still follow [Current Ericsson report — v39](#current-ericsson-report--v39). Later sections are the history those rules were built from. Where they disagree, v42 wins.
 
 Each later update of this report uses the next version name. The workbook, the chart page, the GeoPlot file, and the title inside them move together. A later change is not published under the previous version name.
 
-Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v39.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v39_Charts.html`.
+Workbook: `FEGE_Choked_Flat_Sites_Ericsson_v42.xlsx`. Chart page: `FEGE_Choked_Flat_Sites_Ericsson_v42_Charts.html`. GeoPlot: `FEGE_Choked_Flat_Sites_Ericsson_v42_GeoPlot.html`.
+
+## Current Ericsson report — v42
+
+v42 keeps the v41 Front Node rules and changes the window and the hourly maximum.
+
+The EthernetPort files are `EthernetPort File_1_30Oct.rar`, `EthernetPort File_1_31Oct.rar`, and `EthernetPort File_1_01Nov.rar`. The window is **30 Oct 2026 – 1 Nov 2026**, the same window as the radio report and the OSS KPI.
+
+A reading above 1000 Mbps is an outlier and is dropped. Tx capacity is not more than 1000 Mbps. The site hour is the maximum of the remaining rows. `BBAKD01` at 00:00 on 30 Oct has 14 rows. One row is 176,171.39 Mbps and is dropped. The site hour is 980.3098673. Front Node is the NE whose own maximum of the remaining rows is the highest.
+
+Each Front Node chart on `2. HourlyChartOfIssueSites` has the OSS block in columns M–O, the same Busy Hour / KPI / Value table as the radio charts: 4H and 1H, Data Busy hour and User Busy hour. The FrontNode tab of the chart page shows the 1H OSS panels.
+
+`FrontNode_Site` still does not show License (Mbps) or the 85% columns. The Front Node chart lines are still In Throughput, Peak, and Below5%Peak. The radio sheets are not rescored.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes v42.
+
+## Current Ericsson report — v41
+
+v41 is the v40 Front Node report with the license lines taken off `FrontNode_Site` and off the Front Node charts. The radio sheets, the site list, and the grades are the same as v40.
+
+`FrontNode_Site` does not show License (Mbps), Hours ≥85%, Share of hours, or Where ≥85%. Gap (%) stays. Each Front Node chart on `2. HourlyChartOfIssueSites`, and the FrontNode tab, draws In Throughput (Mbps), Peak, and Below5%Peak. License and 85% of license are not drawn there. The radio charts still draw those two lines. The Dashboard license sections stay.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes v41. `REPORT_VERSION` in that script is the version name of the files it writes.
+
+The Front Node scoring rules are the v40 section below.
+
+## Current Ericsson report — v40
+
+v40 keeps the v39 radio workbook as it was and adds the vendor counter `In Throughput (Mbps)` from `EthernetPort File_1_05Nov.rar`, `EthernetPort File_1_06Nov.rar`, and `EthernetPort File_1_07Nov.rar`. That window is **5 Nov 2026 – 7 Nov 2026**. The FEG, OSS, license, ActionPlan, HUP_usage, and Immediate actions sheets are not rescored.
+
+Runner: `scripts/ethernet_frontnode_site.py`. It copies v39 and writes the new sections into v40.
+
+### Front Node Site
+
+Same floors as Site Level. A site needs at least 24 hourly samples and a Peak of at least 20 Mbit/s.
+
+- Site Name = the first 7 characters of `NE Name`.
+- Site hour = the maximum of `In Throughput (Mbps)` among every row for that site and hour. Every NE and every EthernetPort is included. `BBAKD01` at 00:00 on 5 Nov is 979.9746635, the highest of its 14 rows.
+- Front Node = the NE Name at that site whose own maximum In Throughput is the highest. The grade uses the hourly site maximum, not that NE alone.
+- License = the SUM of `dlBbCapacityNet` for every NodeId with that Site Name. UL is not used.
+- Tx Flat/Chocked, Peak Touch, and License usage use the Site Level floors. A site is written once. License-only names follow the peak-ratio names.
+
+This window: 6,564 sites checked. Tx Flat/Chocked 241 (Severe 237, High 3, Low 1). Peak Touch 4 (Severe 1, Low 3). License usage lists 3 sites; 1 of those is already in Peak Touch or Tx Flat/Chocked, so `FrontNode_Site` has **247** rows. The highest hourly maximum is 212,872.5 Mbps, on `BBAKD01` (`auto_B` of `BBAKD01B04` holds that same reading for many hours). `BBAKD01` at 00:00 on 5 Nov remains 979.9746635.
+
+BH Flag 1H is filled from the OSS 1 BusyHour blocks on `URGENTBWINC_BusyHour` (30 Oct–1 Nov), the same test as Site Level. Yes when either Data 1H or User 1H matches. DL Throughput<7Mbps is at or below 7. Data Vol>50GB is at least 50. DL Throughput<5Mbps is at or below 5. Data Vol>100GB is at least 100. No when both values exist and neither matches. Blank when both are missing. 243 of the 247 rows match an OSS site. `CXCKR32`, `CXUKH1M`, `CMCDGF2`, and `LXRPR88` have no OSS 1H row, so those four flags stay blank. The flag does not add or remove rows. Band is copied from `1. Site List_SiteLevel` when that site is listed there. Otherwise Band is blank.
+
+### Where it is written
+
+Front Node Site Dashboard is the last section on `Dashboard`, after the ERBS Dashboard. It has the same tiles, category summary, severity sections, and license sections. No. starts again at 1.
+
+`FrontNode_Site` sits after `1. Site List_ERBS`. The site name opens that site's chart on `2. HourlyChartOfIssueSites`. The Map column opens the GeoPlot HTML on that site.
+
+The Front Node charts are appended after the radio charts on `2. HourlyChartOfIssueSites`. Each block has the same banner, Peak, Below5%Peak, license, 85% of license, and the line chart. The tag on the block says Front Node. The line is In Throughput (Mbps).
+
+The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The line is In Throughput (Mbps), plus Peak, Below5%Peak, the site license, and 85% of license. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
+
+GeoPlot draws a site when any ERBS is an issue, when Site Level lists it, or when Front Node Site lists it. Severity is the worst grade. Medium is drawn as Moderate. This adds 189 issue sites and makes 17 existing grades worse. `CMCDGF2`, `CXUKH1M`, `CXUKH1R`, and `LXRPR88` have no latitude and longitude, so they are not drawn. The pictures on sheet `5. GeoPlot` stay the 30 Oct–1 Nov radio maps. The GeoPlot HTML and `_GeoData` include the Front Node sites. A FrontNode_Site Map link opens the HTML on that site.
 
 ## Current Ericsson report — v39
 
