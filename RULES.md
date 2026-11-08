@@ -24,7 +24,7 @@ Same floors as Site Level. A site needs at least 24 hourly samples and a Peak of
 
 This window: 6,564 sites checked. Tx Flat/Chocked 241 (Severe 237, High 3, Low 1). Peak Touch 4 (Severe 1, Low 3). License usage lists 3 sites; 1 of those is already in Peak Touch or Tx Flat/Chocked, so `FrontNode_Site` has **247** rows. The highest hourly maximum is 212,872.5 Mbps, on `BBAKD01` (`auto_B` of `BBAKD01B04` holds that same reading for many hours). `BBAKD01` at 00:00 on 5 Nov remains 979.9746635.
 
-BH Flag 1H is blank. The OSS files are 30 Oct–1 Nov, not this window. Band is copied from `1. Site List_SiteLevel` when that site is listed there. Otherwise Band is blank.
+BH Flag 1H is filled from the OSS 1 BusyHour blocks on `URGENTBWINC_BusyHour` (30 Oct–1 Nov), the same test as Site Level. Yes when either Data 1H or User 1H matches. DL Throughput<7Mbps is at or below 7. Data Vol>50GB is at least 50. DL Throughput<5Mbps is at or below 5. Data Vol>100GB is at least 100. No when both values exist and neither matches. Blank when both are missing. 243 of the 247 rows match an OSS site. `CXCKR32`, `CXUKH1M`, `CMCDGF2`, and `LXRPR88` have no OSS 1H row, so those four flags stay blank. The flag does not add or remove rows. Band is copied from `1. Site List_SiteLevel` when that site is listed there. Otherwise Band is blank.
 
 ### Where it is written
 

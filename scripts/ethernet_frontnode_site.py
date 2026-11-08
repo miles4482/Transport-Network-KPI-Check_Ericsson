@@ -65,6 +65,7 @@ S_LINK, S_LINK_Z = "25", "29"
 S_NUM, S_NUM_Z = "26", "30"
 S_PCT, S_PCT_Z = "27", "31"
 S_CENTER, S_CENTER_Z = "17", "32"
+S_YES = "46"
 S_SEV = {"Severe": "12", "High": "16", "Medium": "18", "Low": "19", "Decision": "20"}
 S_METHOD_A, S_METHOD_B = "76", "77"
 
@@ -203,6 +204,33 @@ def score(site_hour: pd.DataFrame) -> tuple[pd.DataFrame, list[dict], dict, list
     summary = pt.analyse_license(site_hour, site_lic)
     charts = pt._prepare_charts(work, records, summary, pt.LEVEL_SITE)
     return work, records, summary, charts
+
+
+def load_bh_flags() -> dict[str, list[str | None]]:
+    """BH Flag 1H from the OSS 1 BusyHour blocks already on URGENTBWINC_BusyHour.
+
+    Yes when either Data 1H or User 1H matches. No when both values exist and
+    neither matches. Blank when both 1H values are missing.
+    """
+    from openpyxl import load_workbook
+
+    book = load_workbook(BASE_BOOK, read_only=True, data_only=True)
+    ws = book["URGENTBWINC_BusyHour"]
+    flags: dict[str, list[str | None]] = {}
+    for row in ws.iter_rows(min_row=6, values_only=True):
+        site = str(row[1] or "").strip()
+        if not site:
+            continue
+        tp = (pt._finite(row[60]), pt._finite(row[72]))
+        vol = (pt._finite(row[62]), pt._finite(row[74]))
+        flags[site] = [
+            pt._bh_yes(tp, lambda value: value <= 7.0),
+            pt._bh_yes(vol, lambda value: value >= 50.0),
+            pt._bh_yes(tp, lambda value: value <= 5.0),
+            pt._bh_yes(vol, lambda value: value >= 100.0),
+        ]
+    book.close()
+    return flags
 
 
 def load_bands() -> dict[str, str]:
@@ -632,7 +660,7 @@ def gap_pct(item: dict) -> float | None:
     return (lic - peak) / lic * 100.0
 
 
-def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int]):
+def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh_flags: dict[str, list[str | None]]):
     rows: list[str] = []
     merges: list[str] = []
     links: list[str] = []
@@ -643,7 +671,11 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int]):
         "Site Name is the first 7 characters of NE Name. "
         "Each hour is the maximum In Throughput (Mbps) among every row for that site and hour. "
         "License is the SUM of dlBbCapacityNet. The floors match Site Level. "
-        "BH Flag 1H is blank: the OSS files are 30 Oct–1 Nov, not this window. "
+        "BH Flag 1H uses the OSS 1 BusyHour blocks for 30 Oct–1 Nov, the same test as Site Level. "
+        "Yes when either Data 1H or User 1H matches. "
+        "DL Throughput<7Mbps is at or below 7 Mbps. Data Vol>50GB is at least 50 GB. "
+        "DL Throughput<5Mbps is at or below 5 Mbps. Data Vol>100GB is at least 100 GB. "
+        "No when both 1H values exist and neither matches. Blank when both are missing. "
         "Band is copied from 1. Site List_SiteLevel when that site is listed there. "
         "The site name opens 2. HourlyChartOfIssueSites. Map opens the GeoPlot HTML on that site."
     )
@@ -694,8 +726,13 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int]):
             c_str(f"F{r}", cfmt, item.get("category") or ""),
             c_str(f"G{r}", S_SEV.get(severity, cfmt), severity),
         ]
-        for col in range(7, 11):
-            cells.append(c_blank(f"{col_name(col)}{r}", cfmt))
+        for col, flag in enumerate(bh_flags.get(item["site"], [None, None, None, None]), start=7):
+            if flag == "Yes":
+                cells.append(c_str(f"{col_name(col)}{r}", S_YES, "Yes"))
+            elif flag == "No":
+                cells.append(c_str(f"{col_name(col)}{r}", cfmt, "No"))
+            else:
+                cells.append(c_blank(f"{col_name(col)}{r}", cfmt))
         cells += [
             c_num(f"L{r}", nfmt, lines["peak"]),
             c_num(f"M{r}", nfmt, lines["level"]),
@@ -1292,6 +1329,9 @@ def main() -> None:
         if stat:
             print(f"  {code} license {stat['license']:.0f}  peak {stat['peak']:.1f}  share {stat['share']:.1f}%", flush=True)
     bands = load_bands()
+    bh_flags = load_bh_flags()
+    matched = sum(1 for item in charts if item["site"] in bh_flags)
+    print(f"BH Flag 1H rows {len(bh_flags):,}  ·  matched to FrontNode_Site {matched:,} of {len(charts):,}", flush=True)
     _geo, tech, types = pt.load_physical()
     print("Reading the v39 workbook shell...", flush=True)
     with zipfile.ZipFile(BASE_BOOK) as book:
@@ -1377,7 +1417,11 @@ def main() -> None:
                 "Links",
                 "Dashboard and FrontNode_Site names open that site's chart on 2. HourlyChartOfIssueSites. "
                 "The Map column opens the GeoPlot HTML on that site. "
-                "BH Flag 1H is blank because the OSS files are the radio window, not 5–7 Nov.",
+                "BH Flag 1H is filled from the OSS 1 BusyHour blocks on URGENTBWINC_BusyHour, "
+                "30 Oct–1 Nov. Yes when either Data 1H or User 1H matches: "
+                "DL Throughput at or below 7 Mbps, Data Volume at least 50 GB, "
+                "DL Throughput at or below 5 Mbps, Data Volume at least 100 GB. "
+                "No when both values exist and neither matches. Blank when both are missing.",
             ),
         ]
     )
@@ -1437,7 +1481,7 @@ def main() -> None:
     strings_blob = strings_blob.replace(b"Excel v39", b"Excel v40")
     strings_blob = strings_blob.replace(b"v39    ", b"v40    ")
 
-    site_xml, site_rels, _first, _last = site_sheet(charts, front, bands, tech, types, chart_rows)
+    site_xml, site_rels, _first, _last = site_sheet(charts, front, bands, tech, types, chart_rows, bh_flags)
     workbook = workbook.replace(
         b'<sheet name="1. Site List_ERBS" sheetId="3" r:id="rId3"/>',
         b'<sheet name="1. Site List_ERBS" sheetId="3" r:id="rId3"/>'
@@ -1489,6 +1533,8 @@ def main() -> None:
             raise SystemExit("FrontNode_Site does not open the hourly chart sheet")
         if b">Front Node<" not in sheet4_out:
             raise SystemExit("Hourly chart sheet has no Front Node block")
+        if b">Yes<" not in book.read("xl/worksheets/sheet14.xml"):
+            raise SystemExit("BH Flag 1H is still blank on FrontNode_Site")
         chart_name = f"xl/charts/chart{1599 + len(charts)}.xml"
         if chart_name not in book.namelist():
             raise SystemExit(f"Missing {chart_name}")
