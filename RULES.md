@@ -32,9 +32,11 @@ Front Node Site Dashboard is the last section on `Dashboard`, after the ERBS Das
 
 `FrontNode_Site` sits after `1. Site List_ERBS`. The site name opens that site's chart on `2. HourlyChartOfIssueSites`. The Map column opens the GeoPlot HTML on that site.
 
-The Front Node charts are appended after the radio charts on `2. HourlyChartOfIssueSites`. Each block has the same banner, Peak, Below5%Peak, license, 85% of license, and the line chart. The tag on the block says Front Node. The line is In Throughput (Mbps).
+The Front Node charts are appended after the radio charts on `2. HourlyChartOfIssueSites`. Each block shows Peak and Below5%Peak, then the line chart. The lines are In Throughput (Mbps), Peak, and Below5%Peak. License and 85% of license are not drawn. The tag on the block says Front Node.
 
-The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The line is In Throughput (Mbps), plus Peak, Below5%Peak, the site license, and 85% of license. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
+`FrontNode_Site` does not show License (Mbps), Hours ≥85%, Share of hours, or Where ≥85%. Gap (%) stays. The Dashboard license sections stay.
+
+The chart page has a third tab, **FrontNode** (orange `#C65911`). Filters are All, Tx Flat/Chocked, Peak Touch, License usage, and All Sites. The lines are In Throughput (Mbps), Peak, and Below5%Peak. OSS 1H panels stay off on this tab. Hash `#FrontNode/<site>`.
 
 GeoPlot draws a site when any ERBS is an issue, when Site Level lists it, or when Front Node Site lists it. Severity is the worst grade. Medium is drawn as Moderate. This adds 189 issue sites and makes 17 existing grades worse. `CMCDGF2`, `CXUKH1M`, `CXUKH1R`, and `LXRPR88` have no latitude and longitude, so they are not drawn. The pictures on sheet `5. GeoPlot` stay the 30 Oct–1 Nov radio maps. The GeoPlot HTML and `_GeoData` include the Front Node sites. A FrontNode_Site Map link opens the HTML on that site.
 

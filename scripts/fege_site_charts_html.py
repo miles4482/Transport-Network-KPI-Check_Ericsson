@@ -663,6 +663,10 @@ function axisLabels() {
 }
 function tab() { return VIEW.tabs[tabId]; }
 function sites() { return tab().sites; }
+function chartSeries() {
+  if (tabId === "FrontNode") return SERIES.filter(spec => spec.key !== "license" && spec.key !== "threshold");
+  return SERIES;
+}
 const SERIES = [
   { key: "rx", name: "Max DL Capacity Usage (Mbps)", color: "#5B9BD5", dash: false },
   { key: "peak", name: "Peak", color: "#C00000", dash: true },
@@ -749,7 +753,7 @@ function draw() {
   const plotW = width - pad.l - pad.r;
   const plotH = height - pad.t - pad.b;
   const packed = [];
-  SERIES.forEach(spec => { if (on[spec.key]) packed.push(...lineValues(site, spec.key)); });
+  chartSeries().forEach(spec => { if (on[spec.key]) packed.push(...lineValues(site, spec.key)); });
   const [yMax, yUnit] = yScale(packed);
   const n = axisLabels().length;
   const xAt = i => pad.l + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
@@ -807,7 +811,7 @@ function draw() {
   ctx.lineTo(pad.l, pad.t + plotH);
   ctx.lineTo(width - pad.r, pad.t + plotH);
   ctx.stroke();
-  SERIES.forEach(spec => {
+  chartSeries().forEach(spec => {
     if (!on[spec.key]) return;
     const values = lineValues(site, spec.key);
     ctx.beginPath();
@@ -841,7 +845,7 @@ function showTip(event) {
   const i = Math.max(0, Math.min(geom.n - 1, Math.round((x - geom.pad.l) / geom.plotW * (geom.n - 1))));
   const site = sites()[current];
   if (!site) return;
-  const rows = SERIES.filter(spec => on[spec.key]).map(spec => {
+  const rows = chartSeries().filter(spec => on[spec.key]).map(spec => {
     const value = lineValues(site, spec.key)[i];
     const shown = value == null ? "—" : value.toFixed(2);
     return `<div style="color:${spec.color}">${spec.name}: ${shown}</div>`;
@@ -878,11 +882,14 @@ function renderChart() {
   const frontKpis = site.frontNode
     ? [kpi("Front Node", site.frontNode, ""), kpi("Front Node peak", site.frontPeak, "")]
     : [];
+  const licenseKpis = tabId === "FrontNode" ? [] : [
+    kpi("License (Mbps)", site.license, ""),
+    kpi("85% of license", site.threshold, ""),
+  ];
   document.getElementById("kpis").innerHTML = [
     kpi("Peak (Mbit/s)", site.peak, ""),
     kpi("Below5%Peak (Mbit/s)", site.level, ""),
-    kpi("License (Mbps)", site.license, ""),
-    kpi("85% of license", site.threshold, ""),
+    ...licenseKpis,
     kpi("Gap (%)", site.gap, ""),
     kpi("Peak ratio (%)", site.ratio, ""),
     kpi("Where touched", site.where, ""),
@@ -898,11 +905,9 @@ function renderChart() {
     const rows = ossNames.map((name, i) => `<div class="oss-row"><span>${name}</span><b>${values[i] == null ? "—" : values[i]}</b></div>`).join("");
     return `<section class="oss-block"><h2 style="background:${color}">${title}</h2>${rows}</section>`;
   }
-  document.querySelectorAll("#legend .leg-name").forEach(node => {
-    const key = node.parentElement.querySelector("input").dataset.key;
-    const spec = SERIES.find(item => item.key === key);
-    node.textContent = legendName(spec, site);
-  });
+  document.getElementById("legend").innerHTML = chartSeries().map(spec => `
+  <label><input type="checkbox" data-key="${spec.key}" ${on[spec.key] === false ? "" : "checked"}>
+  <i class="swatch ${spec.dash ? "dash" : ""}" style="border-top-color:${spec.color}"></i><span class="leg-name">${legendName(spec, site)}</span></label>`).join("");
   document.getElementById("oss").innerHTML = tab().showOss === false ? "" : [
     ossBlock("DataBusyHour (1 BusyHour)", "#6C3483", ossPair && ossPair[0]),
     ossBlock("UserBusyHour (1 BusyHour)", "#1A5276", ossPair && ossPair[1])

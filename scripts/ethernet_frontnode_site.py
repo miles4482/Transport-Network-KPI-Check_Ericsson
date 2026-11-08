@@ -695,8 +695,7 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
         "No.", "Site Name", "Tech", "Site Type", "Band", "Category", "Severity",
         "DL Throughput<7Mbps", "Data Vol>50GB", "DL Throughput<5Mbps", "Data Vol>100GB",
         "Peak (Mbit/s)", "Below5%Peak (Mbit/s)", "Touch hours", "Total hours", "Peak ratio (%)",
-        "Where touched", "License (Mbps)", "Gap (%)", "Front Node", "Front Node peak (Mbit/s)",
-        "Hours ≥85%", "Share of hours (%)", "Where ≥85%", "Map",
+        "Where touched", "Gap (%)", "Front Node", "Front Node peak (Mbit/s)", "Map",
     ]
     rows.append(_header_row(r, headers))
     header_row = r
@@ -711,7 +710,6 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
         link = S_LINK_Z if zebra else S_LINK
         lines = item["lines"]
         touch = item.get("touch")
-        stat = item.get("lic_stat")
         severity = item.get("display_severity") or "—"
         where = touch["cap_when"] if touch else lines["cap_when"]
         code = pt.site_code(item["site"])
@@ -740,35 +738,31 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
             c_num(f"O{r}", ifmt, lines["hours_n"]),
             c_num(f"P{r}", pfmt, lines["hours_pct"]),
             c_str(f"Q{r}", cfmt, where),
-            c_num(f"R{r}", nfmt, finite(stat["license"]) if stat else None),
-            c_num(f"S{r}", pfmt, gap_pct(item)),
-            c_str(f"T{r}", cfmt, front_ne),
-            c_num(f"U{r}", nfmt, front_peak),
-            c_num(f"V{r}", ifmt, stat["hours_on"] if stat else None),
-            c_num(f"W{r}", pfmt, stat["share"] if stat else None),
-            c_str(f"X{r}", cfmt, stat["cap_when"] if stat else ""),
-            c_str(f"Y{r}", link, "Map"),
+            c_num(f"R{r}", pfmt, gap_pct(item)),
+            c_str(f"S{r}", cfmt, front_ne),
+            c_num(f"T{r}", nfmt, front_peak),
+            c_str(f"U{r}", link, "Map"),
         ]
-        rows.append(row_xml(r, 18, cells, 24))
+        rows.append(row_xml(r, 18, cells, 20))
         links.append(
             f'<hyperlink ref="B{r}" location="\'{SNAP_SHEET}\'!A{anchor}" display="{xml_text(item["site"])}"/>'
         )
         rid = f"rId{len(rels) + 1}"
         rels.append((rid, f"{GEOPLOT_HTML.name}#{item['site']}"))
-        links.append(f'<hyperlink ref="Y{r}" r:id="{rid}" display="Map"/>')
+        links.append(f'<hyperlink ref="U{r}" r:id="{rid}" display="Map"/>')
         r += 1
     last = r - 1
     cols = "".join(
         f'<col min="{i}" max="{i}" width="{width}" customWidth="1"/>'
         for i, width in enumerate(
-            [8, 16, 12, 14, 22, 18, 14, 20, 16, 20, 16, 16, 20, 14, 14, 16, 18, 16, 12, 18, 24, 14, 18, 16, 12],
+            [8, 16, 12, 14, 22, 18, 14, 20, 16, 20, 16, 16, 20, 14, 14, 16, 18, 12, 18, 24, 12],
             start=1,
         )
     )
     xml = sheet_document(
         rows, merges, links,
         tab="FFC65911",
-        dimension=f"A1:Y{last}",
+        dimension=f"A1:U{last}",
         cols=f"<cols>{cols}</cols>",
         header="&amp;L&amp;8&amp;K1F4E79Front Node Site&amp;R&amp;8Transmission Link Health Review  |  Ericsson  |  5 Nov 2026 – 7 Nov 2026",
         footer="&amp;L&amp;8Each hour is the maximum In Throughput (Mbps)&amp;R&amp;8Page &amp;P of &amp;N",
@@ -776,7 +770,7 @@ def site_sheet(charts, front, bands, tech, types, chart_rows: dict[str, int], bh
     )
     xml = xml.replace(
         "</sheetData>",
-        f'</sheetData><autoFilter ref="A{header_row}:Y{last}"/>',
+        f'</sheetData><autoFilter ref="A{header_row}:U{last}"/>',
         1,
     )
     return xml, rels_xml(rels), first_data, last
@@ -793,9 +787,6 @@ def _banner(item: dict, number: int) -> str:
         tags.append(f"{pt.CAT_PEAK} {item['display_severity']}")
     elif item.get("category") == pt.CAT_LICENSE:
         tags.append(f"{pt.CAT_LICENSE} {item.get('display_severity', '')}")
-    lic = item.get("license")
-    if lic and item.get("category") != pt.CAT_LICENSE:
-        tags.append(f"License {float(lic['share']):.1f}% of hours ≥{pt.LICENSE_USE * 100:.0f}%")
     tail = "    ·    ".join(tags)
     return f"{number:02d}    {item['site']}    ·    {PERIOD}    ·    {tail}"
 
@@ -833,7 +824,6 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
     merges: list[str] = []
     anchors: list[str] = []
     rels: list[str] = []
-    use_pct = pt.LICENSE_USE * 100
 
     print(f"Drawing {len(charts)} Front Node charts after chart {existing}...", flush=True)
     for i, item in enumerate(charts):
@@ -843,9 +833,7 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
         lines = item["lines"]
         peak = float(lines["peak"])
         level = float(lines["level"])
-        license_mbps = float(item.get("license_mbps", float("nan")))
-        threshold = license_mbps * pt.LICENSE_USE if np.isfinite(license_mbps) else float("nan")
-        headers = ("Date", "Time", "Rx", "Peak", "Touch", "License", "Threshold")
+        headers = ("Date", "Time", "Rx", "Peak", "Touch")
         for offset, name in enumerate(headers):
             ref = f"{col_name(c0 + offset)}1"
             data.write(0, c0 + offset, name)
@@ -860,7 +848,7 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
             }
         dates: list[str] = []
         times: list[str] = []
-        plotted = [value for value in (peak, level, license_mbps, threshold) if np.isfinite(value)]
+        plotted = [value for value in (peak, level) if np.isfinite(value)]
         r = 0
         for day in days:
             date_label = f"{int(day.day)}/{fcc.MONTHS[int(day.month) - 1]}"
@@ -887,12 +875,6 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
                 if np.isfinite(level):
                     data.write_number(r, c0 + 4, level)
                     data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 4)}{excel_r}", level))
-                if np.isfinite(license_mbps):
-                    data.write_number(r, c0 + 5, license_mbps)
-                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 5)}{excel_r}", license_mbps))
-                if np.isfinite(threshold):
-                    data.write_number(r, c0 + 6, threshold)
-                    data_cells[excel_r].append(_num_cell(f"{col_name(c0 + 6)}{excel_r}", threshold))
         chart = book.add_chart({"type": "line"})
         chart.show_blanks_as("gap")
         chart.set_title({"name": item["site"], "name_font": {"name": "Calibri", "size": 16, "color": "#595959"}})
@@ -900,8 +882,6 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
             ("In Throughput (Mbps)", 2, {"color": "#5B9BD5", "width": 2.25}, True),
             (f"Peak ({peak:.2f} Mbit/s)", 3, {"color": "#C00000", "width": 1.5, "dash_type": "dash"}, np.isfinite(peak)),
             (f"Below5%Peak ({level:.2f} Mbit/s)", 4, {"color": "#ED7D31", "width": 1.5, "dash_type": "dash"}, np.isfinite(level)),
-            (f"License ({license_mbps:.2f} Mbps)", 5, {"color": "#548235", "width": 1.5, "dash_type": "dash"}, np.isfinite(license_mbps)),
-            (f"{use_pct:.0f}% of license ({threshold:.2f} Mbps)", 6, {"color": "#833C0C", "width": 1.5, "dash_type": "dash"}, np.isfinite(threshold)),
         ]
         for name, offset, line, ok in series:
             if not ok:
@@ -955,8 +935,6 @@ def append_hourly_charts(sheet4: bytes, sheet5: bytes, drawing: bytes, drawing_r
         labels = [
             (0, "Peak (Mbit/s)", f"{peak:.2f}" if np.isfinite(peak) else "—"),
             (2, "Below5%Peak (Mbit/s)", f"{level:.2f}" if np.isfinite(level) else "—"),
-            (4, "License (Mbps)", f"{license_mbps:.2f}" if np.isfinite(license_mbps) else "No license"),
-            (6, f"{use_pct:.0f}% of license (Mbps)", f"{threshold:.2f}" if np.isfinite(threshold) else "—"),
         ]
         banner_cells = [c_str(f"A{excel_top}", S_CHART_BANNER, _banner(item, i + 1))]
         banner_cells += [c_blank(f"{col_name(col)}{excel_top}", S_CHART_BANNER) for col in range(1, 8)]
@@ -1196,7 +1174,7 @@ def front_tab(charts, work, front, bands, tech, types, summary) -> dict:
         "bandLabel": "Band",
         "listTitle": "FrontNode_Site",
         "search": "Search site, front node, severity",
-        "hint": "Each chart is one site. In Throughput is the maximum of every row for that site and hour, 5–7 Nov 2026. License is the summed dlBbCapacityNet.",
+        "hint": "Each chart is one site. In Throughput is the maximum of every row for that site and hour, 5–7 Nov 2026. The lines are In Throughput, Peak, and Below5%Peak.",
         "noun": "issue sites",
         "period": "05 Nov 2026 – 07 Nov 2026",
         "rxName": "In Throughput (Mbps)",
@@ -1533,8 +1511,14 @@ def main() -> None:
             raise SystemExit("FrontNode_Site does not open the hourly chart sheet")
         if b">Front Node<" not in sheet4_out:
             raise SystemExit("Hourly chart sheet has no Front Node block")
-        if b">Yes<" not in book.read("xl/worksheets/sheet14.xml"):
+        front_sheet = book.read("xl/worksheets/sheet14.xml")
+        if b">Yes<" not in front_sheet:
             raise SystemExit("BH Flag 1H is still blank on FrontNode_Site")
+        if b"License (Mbps)" in front_sheet or "Hours ≥85%".encode() in front_sheet:
+            raise SystemExit("FrontNode_Site still has the license columns")
+        front_chart = book.read(f"xl/charts/chart{1599 + 1}.xml")
+        if b"85% of license" in front_chart or b"License (" in front_chart:
+            raise SystemExit("Front Node chart still draws the license lines")
         chart_name = f"xl/charts/chart{1599 + len(charts)}.xml"
         if chart_name not in book.namelist():
             raise SystemExit(f"Missing {chart_name}")
